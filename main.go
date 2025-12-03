@@ -24,12 +24,18 @@ func main() {
 	utils.InitB2()
 
 	mux := http.NewServeMux()
-	// Setup route to get users
-
+	// Admin
 	mux.HandleFunc("/admin_login", routes.AdimnLogin)
 	mux.HandleFunc("/admin_get_partners", routes.Get_partners_list)
 	mux.HandleFunc("/admin_update_request_status_of_partner", routes.Update_request_status_of_partner)
 
+	//Customer
+	http.HandleFunc("/signup-customer", routes.SingUp_Customer)
+	http.HandleFunc("/login-customer", routes.LoginCustomer)
+	http.HandleFunc("/verify-customer", routes.CustomerVerifyOTP)
+	http.HandleFunc("/resend-otp-customer", routes.CustomerResendOTP)
+
+	// Partner
 	mux.HandleFunc("/login", routes.LoginHandler)
 	mux.HandleFunc("/users", routes.GetUsers)
 	mux.HandleFunc("/signup", routes.SignUp)
@@ -37,6 +43,9 @@ func main() {
 	mux.HandleFunc("/verify", routes.VerifyEmailHandler)
 	mux.HandleFunc("/Get_user_email_status", routes.GetEmailStatusHandler)
 	mux.HandleFunc("/update_partner_details", routes.UpdateDeliveryPartnerHandler)
+
+	//after login apis
+	mux.HandleFunc("/get_partner_details", routes.Get_partner_details)
 
 	mux.Handle("/uploads/", http.StripPrefix("/uploads/", http.FileServer(http.Dir("uploads"))))
 

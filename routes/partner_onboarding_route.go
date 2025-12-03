@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -518,5 +519,117 @@ func UpdateDeliveryPartnerHandler(w http.ResponseWriter, r *http.Request) {
 		"step_3_completed":  step3Completed,
 		"step_4_completed":  step4Completed,
 		"profile_completed": allCompleted,
+	})
+}
+
+func Get_partner_details(w http.ResponseWriter, r *http.Request) {
+
+	// -------------------------------
+	// 1. Read Bearer Token
+	// -------------------------------
+	authHeader := r.Header.Get("Authorization")
+	if authHeader == "" {
+		JSON(w, 401, false, "Authorization header missing", nil)
+		return
+	}
+
+	parts := strings.Split(authHeader, " ")
+	if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
+		JSON(w, 401, false, "Invalid token format", nil)
+		return
+	}
+
+	tokenString := parts[1]
+
+	// -------------------------------
+	// 2. Parse Token → loginID + email
+	// -------------------------------
+	loginID, email, err := utils.ParseToken(tokenString)
+	if err != nil {
+		JSON(w, 401, false, "Invalid or expired token", nil)
+		return
+	}
+
+	// -------------------------------
+	// 3. Fetch email_verified from login table + password
+	// -------------------------------
+	var emailVerified int
+	var password sql.NullString
+
+	err = db.DB.QueryRow(`
+        SELECT email_verified, password
+        FROM login
+        WHERE id = ?
+    `, loginID).Scan(&emailVerified, &password)
+
+	if err != nil {
+		JSON(w, 500, false, "Failed to fetch login info", nil)
+		return
+	}
+
+	// -------------------------------
+	// 4. Fetch personal info from delivery_partners
+	// -------------------------------
+	var firstName, lastName, dateOfBirth, primaryMobile, gender, profilePhoto sql.NullString
+	var profileCompleted int
+	var partnerprofilereqStatus string
+
+	err = db.DB.QueryRow(`
+        SELECT first_name, last_name, date_of_birth, primary_mobile, gender, profile_photo_url,profile_completed,status
+        FROM delivery_partners
+        WHERE login_id = ?
+    `, loginID).Scan(
+		&firstName,
+		&lastName,
+		&dateOfBirth,
+		&primaryMobile,
+		&gender,
+		&profilePhoto,
+		&profileCompleted,
+		&partnerprofilereqStatus,
+	)
+
+	if err != nil && err != sql.ErrNoRows {
+		JSON(w, 500, false, "Failed to fetch partner info", nil)
+		return
+	}
+
+	// -------------------------------
+	// 5. STEP COMPLETION LOGIC
+	// -------------------------------
+
+	// Step 1 → Basic profile details
+	step1Completed := firstName.String != "" &&
+		lastName.String != "" &&
+		dateOfBirth.String != "" &&
+		primaryMobile.String != "" &&
+		gender.String != ""
+
+	// Step 2 → Password set in login table
+	step2Completed := password.String != ""
+
+	// Step 3 → Profile photo uploaded
+	step3Completed := profilePhoto.String != ""
+
+	// -------------------------------
+	// 6. Final Response
+	// -------------------------------
+	JSON(w, 200, true, "Success", map[string]interface{}{
+		"email":             email,
+		"email_verified":    emailVerified,
+		"first_name":        firstName.String,
+		"last_name":         lastName.String,
+		"date_of_birth":     dateOfBirth.String,
+		"primary_mobile":    primaryMobile.String,
+		"profile_photo_url": profilePhoto.String,
+		"gender":            gender.String,
+		"profile_completed": profileCompleted,
+
+		// ✔ ADD NEW FLAGS
+		"step_1_completed": step1Completed,
+		"step_2_completed": step2Completed,
+		"step_3_completed": step3Completed,
+
+		"partner_profilereq_Status": partnerprofilereqStatus,
 	})
 }
