@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/rand"
 	"net/http"
+	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -140,15 +141,14 @@ func isValidEmail(email string) bool {
 	return re.MatchString(email)
 }
 
-var JwtKey = []byte("MY_SECRET_KEY")
+var JwtKey = []byte(os.Getenv("e4d1c038b9b3b00b1681d92c1310afb8880d0a61e99f004e96d750f37f3ab085"))
 
 func GenerateJWT(email string, userID int) (string, error) {
-
 	claims := jwt.MapClaims{
 		"user_id": userID,
 		"email":   email,
-		"exp":     time.Now().Add(24 * time.Hour).Unix(),
-		"iat":     time.Now().Unix(),
+		//"exp":     time.Now().Add(24 * time.Hour).Unix(),
+		//"iat":     time.Now().Unix(),
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)

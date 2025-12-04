@@ -30,10 +30,15 @@ func main() {
 	mux.HandleFunc("/admin_update_request_status_of_partner", routes.Update_request_status_of_partner)
 
 	//Customer
-	http.HandleFunc("/signup-customer", routes.SingUp_Customer)
-	http.HandleFunc("/login-customer", routes.LoginCustomer)
-	http.HandleFunc("/verify-customer", routes.CustomerVerifyOTP)
-	http.HandleFunc("/resend-otp-customer", routes.CustomerResendOTP)
+	mux.HandleFunc("/signup-customer", routes.SingUp_Customer)
+	mux.HandleFunc("/login-customer", routes.LoginCustomer)
+	mux.HandleFunc("/verify-customer", routes.CustomerVerifyOTP)
+	mux.HandleFunc("/resend-otp-customer", routes.CustomerResendOTP)
+	mux.HandleFunc("/categories", middleware.AuthMiddleware(routes.GetAllCategories))
+	mux.HandleFunc("/restaurants-by-category", middleware.AuthMiddleware(routes.GetRestaurantsByCategory))
+	mux.HandleFunc("/restaurants-menu", middleware.AuthMiddleware(routes.GetRestaurantMenu))
+	mux.HandleFunc("/menu-details", middleware.AuthMiddleware(routes.GetMenuItemDetails))
+	mux.HandleFunc("/customer-details", middleware.AuthMiddleware(routes.GetCustomerDetails))
 
 	// Partner
 	mux.HandleFunc("/login", routes.LoginHandler)
