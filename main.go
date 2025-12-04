@@ -51,6 +51,7 @@ func main() {
 
 	//after login apis
 	mux.HandleFunc("/get_partner_details", routes.Get_partner_details)
+	mux.HandleFunc("/store_partner_bank_account_details", routes.CreatePartnerBankAccountHandler)
 
 	mux.Handle("/uploads/", http.StripPrefix("/uploads/", http.FileServer(http.Dir("uploads"))))
 
