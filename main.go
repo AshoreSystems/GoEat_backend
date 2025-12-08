@@ -39,6 +39,11 @@ func main() {
 	mux.HandleFunc("/restaurants-menu", middleware.AuthMiddleware(routes.GetRestaurantMenu))
 	mux.HandleFunc("/menu-details", middleware.AuthMiddleware(routes.GetMenuItemDetails))
 	mux.HandleFunc("/customer-details", middleware.AuthMiddleware(routes.GetCustomerDetails))
+	mux.HandleFunc("/customer-add-delivery-address", middleware.AuthMiddleware(routes.AddCustomerAddress))
+	mux.HandleFunc("/customer-delivery-address-list", middleware.AuthMiddleware(routes.GetCustomerAddresses))
+	mux.HandleFunc("/delete-customer-address", middleware.AuthMiddleware(routes.DeleteCustomerAddress))
+	mux.HandleFunc("/near-by-restaurant-menu", middleware.AuthMiddleware(routes.GetNearbyRestaurantMenu))
+	mux.HandleFunc("/customer-update-profile", middleware.AuthMiddleware(routes.UpdateCustomerProfile))
 
 	// Partner
 	mux.HandleFunc("/login", routes.LoginHandler)

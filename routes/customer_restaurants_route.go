@@ -373,3 +373,126 @@ func GetMenuItemDetails(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
 }
+
+type NearbyMenuRequest struct {
+	Latitude   float64 `json:"latitude"`
+	Longitude  float64 `json:"longitude"`
+	Radius     float64 `json:"radius"`
+	CategoryID int     `json:"category_id"` // new optional filter
+}
+type RestaurentMenuItem struct {
+	RestaurantID   int     `json:"restaurant_id"`
+	RestaurantName string  `json:"restaurant_name"`
+	CategoryID     int     `json:"category_id"`
+	CategoryName   string  `json:"category_name"`
+	MenuItemID     int     `json:"menu_item_id"`
+	ItemName       string  `json:"item_name"`
+	Description    string  `json:"description"`
+	Price          float64 `json:"price"`
+	ImageURL       string  `json:"image_url"`
+	Distance       float64 `json:"distance"`
+}
+
+func GetNearbyRestaurantMenu(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req NearbyMenuRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	//db := GetDB()
+
+	baseQuery := `
+	SELECT
+		r.id AS restaurant_id,
+		r.restaurant_name AS restaurant_name,
+		c.id AS category_id,
+		c.category_name,
+		mi.id AS menu_item_id,
+		mi.item_name,
+		mi.description,
+		mi.price,
+		mi.image_url,
+		r.distance
+	FROM (
+		SELECT 
+			id, restaurant_name,
+			(6371 * acos(
+				cos(radians(?)) * cos(radians(latitude)) *
+				cos(radians(longitude) - radians(?)) +
+				sin(radians(?)) * sin(radians(latitude))
+			)) AS distance
+		FROM restaurants
+		HAVING distance <= ?
+	) r
+	JOIN restaurant_menu_items rmi ON rmi.restaurant_id = r.id
+	JOIN menu_items mi ON mi.id = rmi.menu_item_id
+	JOIN categories c ON c.id = mi.category_id
+	WHERE 1 = 1
+	`
+
+	// Add category filter condition dynamically
+	args := []interface{}{req.Latitude, req.Longitude, req.Latitude, req.Radius}
+
+	if req.CategoryID > 0 {
+		baseQuery += " AND c.id = ? "
+		args = append(args, req.CategoryID)
+	}
+
+	baseQuery += " ORDER BY r.distance, c.category_name, mi.item_name;"
+
+	rows, err := db.DB.Query(baseQuery, args...)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	menuList := []RestaurentMenuItem{}
+	for rows.Next() {
+		var m RestaurentMenuItem
+		err := rows.Scan(&m.RestaurantID, &m.RestaurantName, &m.CategoryID, &m.CategoryName,
+			&m.MenuItemID, &m.ItemName, &m.Description, &m.Price, &m.ImageURL, &m.Distance)
+
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		menuList = append(menuList, m)
+	}
+
+	// ------------------ GROUP BY CATEGORY ------------------
+	items := []map[string]interface{}{}
+
+	for _, item := range menuList {
+		items = append(items, map[string]interface{}{
+			"restaurant_id":   item.RestaurantID,
+			"restaurant_name": item.RestaurantName,
+			"menu_item_id":    item.MenuItemID,
+			"item_name":       item.ItemName,
+			"description":     item.Description,
+			"price":           item.Price,
+			"image_url":       item.ImageURL,
+			"distance":        item.Distance,
+		})
+	}
+
+	response := MenuResponse{
+		Status: true,
+		Items:  items,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+type MenuResponse struct {
+	Status bool        `json:"status"`
+	Items  interface{} `json:"items"`
+}
