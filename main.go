@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 
+	"GoEatsapi/config"
 	"GoEatsapi/db"
 	"GoEatsapi/middleware"
 	"GoEatsapi/routes"
@@ -22,6 +23,7 @@ func main() {
 
 	db.Connect()
 	utils.InitB2()
+	config.InitStripe()
 
 	mux := http.NewServeMux()
 	// Admin
@@ -30,10 +32,15 @@ func main() {
 	mux.HandleFunc("/admin_update_request_status_of_partner", routes.Update_request_status_of_partner)
 
 	//Customer
-	http.HandleFunc("/signup-customer", routes.SingUp_Customer)
-	http.HandleFunc("/login-customer", routes.LoginCustomer)
-	http.HandleFunc("/verify-customer", routes.CustomerVerifyOTP)
-	http.HandleFunc("/resend-otp-customer", routes.CustomerResendOTP)
+	mux.HandleFunc("/signup-customer", routes.SingUp_Customer)
+	mux.HandleFunc("/login-customer", routes.LoginCustomer)
+	mux.HandleFunc("/verify-customer", routes.CustomerVerifyOTP)
+	mux.HandleFunc("/resend-otp-customer", routes.CustomerResendOTP)
+	mux.HandleFunc("/categories", middleware.AuthMiddleware(routes.GetAllCategories))
+	mux.HandleFunc("/restaurants-by-category", middleware.AuthMiddleware(routes.GetRestaurantsByCategory))
+	mux.HandleFunc("/restaurants-menu", middleware.AuthMiddleware(routes.GetRestaurantMenu))
+	mux.HandleFunc("/menu-details", middleware.AuthMiddleware(routes.GetMenuItemDetails))
+	mux.HandleFunc("/customer-details", middleware.AuthMiddleware(routes.GetCustomerDetails))
 
 	// Partner
 	mux.HandleFunc("/login", routes.LoginHandler)
@@ -46,7 +53,9 @@ func main() {
 
 	//after login apis
 	mux.HandleFunc("/get_partner_details", routes.Get_partner_details)
+	mux.HandleFunc("/stripe/create-account", routes.CreateStripeOnboarding)
 	mux.HandleFunc("/store_partner_bank_account_details", routes.CreatePartnerBankAccountHandler)
+	mux.HandleFunc("/stripe/get-account-details", routes.GetStripe_Account_details_handler)
 
 	mux.Handle("/uploads/", http.StripPrefix("/uploads/", http.FileServer(http.Dir("uploads"))))
 
