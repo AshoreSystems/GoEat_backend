@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 
+	"GoEatsapi/config"
 	"GoEatsapi/db"
 	"GoEatsapi/middleware"
 	"GoEatsapi/routes"
@@ -22,6 +23,7 @@ func main() {
 
 	db.Connect()
 	utils.InitB2()
+	config.InitStripe()
 
 	mux := http.NewServeMux()
 	// Admin
@@ -56,6 +58,9 @@ func main() {
 
 	//after login apis
 	mux.HandleFunc("/get_partner_details", routes.Get_partner_details)
+	mux.HandleFunc("/stripe/create-account", routes.CreateStripeOnboarding)
+	mux.HandleFunc("/store_partner_bank_account_details", routes.CreatePartnerBankAccountHandler)
+	mux.HandleFunc("/stripe/get-account-details", routes.GetStripe_Account_details_handler)
 
 	mux.Handle("/uploads/", http.StripPrefix("/uploads/", http.FileServer(http.Dir("uploads"))))
 
