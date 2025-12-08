@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/joho/godotenv"
+	"github.com/stripe/stripe-go/v76"
 )
 
 func LoadEnv() {
@@ -20,4 +21,8 @@ func GetEnv(key, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+func InitStripe() {
+	stripe.Key = os.Getenv("STRIPE_SK") // your secret key
 }
