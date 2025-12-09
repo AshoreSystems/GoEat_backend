@@ -307,20 +307,11 @@ func UpdateDeliveryPartnerHandler(w http.ResponseWriter, r *http.Request) {
 	// Check if file was uploaded
 	if _, _, err := r.FormFile("profile_photo"); err == nil {
 		// User uploaded a file → upload to B2
-		profilePhotoURL, err = utils.UploadImageToB2(r, "profile_photo")
-		if err != nil {
-			JSON(w, 500, false, "Failed to upload profile photo", nil)
-			return
-		}
+		profilePhotoURL, _ = saveFile(r, "profile_photo")
 	}
 
 	if _, _, err := r.FormFile("driving_license"); err == nil {
-		drivingLicenseURL, err = utils.UploadImageToB2(r, "driving_license")
-		if err != nil {
-			fmt.Println("Failed to upload driving license: ", err)
-			JSON(w, 500, false, "Failed to upload driving license", nil)
-			return
-		}
+		drivingLicenseURL, _ = saveFile(r, "driving_license")
 	}
 
 	// -------------------------------
