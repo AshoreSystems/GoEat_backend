@@ -212,8 +212,9 @@ func LoginCustomer(w http.ResponseWriter, r *http.Request) {
 
 	// ------- FETCH CUSTOMER DETAILS -------
 	var fullName, phone, countryCode, dob, profileImage, login_id string
-	customerQuery := `SELECT full_name, phone_number, country_code, dob, profile_image,login_id  FROM customer WHERE login_id = ?`
-	err = db.DB.QueryRow(customerQuery, userID).Scan(&fullName, &phone, &countryCode, &dob, &profileImage, &login_id)
+	var user_id int
+	customerQuery := `SELECT id, full_name, phone_number, country_code, dob, profile_image,login_id  FROM customer WHERE login_id = ?`
+	err = db.DB.QueryRow(customerQuery, userID).Scan(&user_id, &fullName, &phone, &countryCode, &dob, &profileImage, &login_id)
 	if err != nil {
 		sendErrorResponse(w, "Customer details not found")
 		return
@@ -221,7 +222,7 @@ func LoginCustomer(w http.ResponseWriter, r *http.Request) {
 
 	// Response payload
 	data := map[string]interface{}{
-		"user_id":       userID,
+		"user_id":       user_id,
 		"full_name":     fullName,
 		"phone_number":  phone,
 		"country_code":  countryCode,
@@ -307,9 +308,10 @@ func CustomerVerifyOTP(w http.ResponseWriter, r *http.Request) {
 
 	// Fetch customer profile
 	var fullName, phone, countryCode, dob, profileImage string
-	customerQuery := `SELECT full_name, phone_number, country_code, dob, profile_image 
+	var user_id int
+	customerQuery := `SELECT id,full_name, phone_number, country_code, dob, profile_image 
                       FROM customer WHERE login_id = ?`
-	err = db.DB.QueryRow(customerQuery, userID).Scan(&fullName, &phone, &countryCode, &dob, &profileImage)
+	err = db.DB.QueryRow(customerQuery, userID).Scan(&user_id, &fullName, &phone, &countryCode, &dob, &profileImage)
 	if err != nil {
 		sendErrorResponse(w, "Customer details not found")
 		return
@@ -317,7 +319,7 @@ func CustomerVerifyOTP(w http.ResponseWriter, r *http.Request) {
 
 	// Data object
 	data := map[string]interface{}{
-		"user_id":       userID,
+		"user_id":       user_id,
 		"full_name":     fullName,
 		"phone_number":  phone,
 		"country_code":  countryCode,
