@@ -7,11 +7,17 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/stripe/stripe-go"
 	"github.com/stripe/stripe-go/paymentintent"
 )
+
+type CreatePaymentIntentRequest struct {
+	Amount   int64  `json:"amount"`   // in smallest currency unit (e.g. 100 = ₹1)
+	Currency string `json:"currency"` // "inr", "usd", etc.
+}
 
 func GenerateOrderNumber(db *sql.DB) (string, error) {
 	var lastOrderID int64
@@ -155,4 +161,47 @@ VALUES (?, ?, ?, 'Online', 'stripe', ?, ?, NOW())
 		"order_number":   orderNumber,
 		"payment_status": "success",
 	})
+}
+
+func Create_payment_intent(w http.ResponseWriter, r *http.Request) {
+	r.ParseMultipartForm(10 << 20)
+
+	amountStr := r.FormValue("amount")
+
+	userAmount, err := strconv.ParseFloat(amountStr, 64)
+	if err != nil {
+		http.Error(w, "Invalid amount", http.StatusBadRequest)
+		return
+	}
+
+	// Stripe needs smallest currency unit (paise)
+	// Example: 158 → 15800
+	stripeAmount := int64(userAmount * 100)
+
+	// Validate
+	if stripeAmount <= 0 {
+		http.Error(w, "Amount must be greater than 0", http.StatusBadRequest)
+		return
+	}
+
+	stripe.Key = os.Getenv("STRIPE_SK")
+	params := &stripe.PaymentIntentParams{
+		Amount:             stripe.Int64(stripeAmount),
+		Currency:           stripe.String("usd"),
+		PaymentMethodTypes: stripe.StringSlice([]string{"card"}), // Force card only
+	}
+
+	pi, err := paymentintent.New(params)
+	if err != nil {
+		http.Error(w, "Stripe error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	response := map[string]interface{}{
+		"client_secret":  pi.ClientSecret,
+		"payment_intent": pi.ID,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
 }
