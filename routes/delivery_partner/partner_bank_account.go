@@ -1,9 +1,10 @@
-package routes
+package DeliveryPartner
 
 import (
 	"GoEatsapi/db"
 	"GoEatsapi/utils"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -14,6 +15,17 @@ import (
 	"github.com/stripe/stripe-go/v76/accountlink"
 )
 
+func JSON(w http.ResponseWriter, status int, success bool, msg string, data interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": success,
+		"message": msg,
+		"data":    data,
+	})
+}
+
 func CreateStripeAccount(w http.ResponseWriter, r *http.Request) {
 
 	// -------------------------------
@@ -21,20 +33,20 @@ func CreateStripeAccount(w http.ResponseWriter, r *http.Request) {
 	// -------------------------------
 	authHeader := r.Header.Get("Authorization")
 	if authHeader == "" {
-		JSON(w, 401, false, "Authorization header missing", nil)
+		utils.JSON(w, 401, false, "Authorization header missing", nil)
 		return
 	}
 
 	parts := strings.Split(authHeader, " ")
 	if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
-		JSON(w, 401, false, "Invalid token format", nil)
+		utils.JSON(w, 401, false, "Invalid token format", nil)
 		return
 	}
 
 	tokenString := parts[1]
 	loginID, _, err := utils.ParseToken(tokenString)
 	if err != nil {
-		JSON(w, 401, false, "Invalid or expired token", nil)
+		utils.JSON(w, 401, false, "Invalid or expired token", nil)
 		return
 	}
 
@@ -55,7 +67,7 @@ func CreateStripeAccount(w http.ResponseWriter, r *http.Request) {
 
 	acc, err := account.New(params)
 	if err != nil {
-		JSON(w, 500, false, "Failed to create Stripe account", err.Error())
+		utils.JSON(w, 500, false, "Failed to create Stripe account", err.Error())
 		return
 	}
 
@@ -72,7 +84,7 @@ func CreateStripeAccount(w http.ResponseWriter, r *http.Request) {
 	`
 	err = db.DB.QueryRow(checkQuery, loginID).Scan(&count)
 	if err != nil {
-		JSON(w, 500, false, "Database error", nil)
+		utils.JSON(w, 500, false, "Database error", nil)
 		return
 	}
 
@@ -89,11 +101,11 @@ func CreateStripeAccount(w http.ResponseWriter, r *http.Request) {
 
 		_, err = db.DB.Exec(updateQuery, stripeAccountID, loginID)
 		if err != nil {
-			JSON(w, 500, false, "Failed to update Stripe account ID", nil)
+			utils.JSON(w, 500, false, "Failed to update Stripe account ID", nil)
 			return
 		}
 
-		JSON(w, 200, true, "Stripe account created & updated", map[string]interface{}{
+		utils.JSON(w, 200, true, "Stripe account created & updated", map[string]interface{}{
 			"stripe_account_id": stripeAccountID,
 		})
 
@@ -112,11 +124,11 @@ func CreateStripeAccount(w http.ResponseWriter, r *http.Request) {
 	_, err = db.DB.Exec(insertQuery, loginID, stripeAccountID)
 	if err != nil {
 		fmt.Println("Insert error:", err)
-		JSON(w, 500, false, "Failed to save Stripe account ID", nil)
+		utils.JSON(w, 500, false, "Failed to save Stripe account ID", nil)
 		return
 	}
 
-	JSON(w, 200, true, "Stripe account created & saved", map[string]interface{}{
+	utils.JSON(w, 200, true, "Stripe account created & saved", map[string]interface{}{
 		"stripe_account_id": stripeAccountID,
 	})
 }
@@ -128,20 +140,20 @@ func CreateStripeOnboarding(w http.ResponseWriter, r *http.Request) {
 	// -------------------------------
 	authHeader := r.Header.Get("Authorization")
 	if authHeader == "" {
-		JSON(w, 401, false, "Authorization header missing", nil)
+		utils.JSON(w, 401, false, "Authorization header missing", nil)
 		return
 	}
 
 	parts := strings.Split(authHeader, " ")
 	if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
-		JSON(w, 401, false, "Invalid token format", nil)
+		utils.JSON(w, 401, false, "Invalid token format", nil)
 		return
 	}
 
 	tokenString := parts[1]
 	loginID, _, err := utils.ParseToken(tokenString)
 	if err != nil {
-		JSON(w, 401, false, "Invalid or expired token", nil)
+		utils.JSON(w, 401, false, "Invalid or expired token", nil)
 		return
 	}
 
@@ -156,7 +168,7 @@ func CreateStripeOnboarding(w http.ResponseWriter, r *http.Request) {
 	`
 	err = db.DB.QueryRow(checkRow, loginID).Scan(&rowCount)
 	if err != nil {
-		JSON(w, 500, false, "Database error", nil)
+		utils.JSON(w, 500, false, "Database error", nil)
 		return
 	}
 
@@ -177,10 +189,10 @@ func CreateStripeOnboarding(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			fmt.Println("Query error:", err)
 			if err == sql.ErrNoRows {
-				JSON(w, 404, false, "Stripe account not found for this partner", nil)
+				utils.JSON(w, 404, false, "Stripe account not found for this partner", nil)
 				return
 			}
-			JSON(w, 500, false, "Database error", nil)
+			utils.JSON(w, 500, false, "Database error", nil)
 			return
 		}
 	}
@@ -211,7 +223,7 @@ func CreateStripeOnboarding(w http.ResponseWriter, r *http.Request) {
 
 		acc, err := account.New(params)
 		if err != nil {
-			JSON(w, 500, false, "Failed to create Stripe account", err.Error())
+			utils.JSON(w, 500, false, "Failed to create Stripe account", err.Error())
 			return
 		}
 
@@ -235,7 +247,7 @@ func CreateStripeOnboarding(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if err != nil {
-			JSON(w, 500, false, "Failed to save Stripe account ID", nil)
+			utils.JSON(w, 500, false, "Failed to save Stripe account ID", nil)
 			return
 		}
 	}
@@ -252,11 +264,11 @@ func CreateStripeOnboarding(w http.ResponseWriter, r *http.Request) {
 
 	link, err := accountlink.New(params)
 	if err != nil {
-		JSON(w, 500, false, "Failed to generate onboarding link", err.Error())
+		utils.JSON(w, 500, false, "Failed to generate onboarding link", err.Error())
 		return
 	}
 
-	JSON(w, 200, true, "Onboarding URL generated", map[string]interface{}{
+	utils.JSON(w, 200, true, "Onboarding URL generated", map[string]interface{}{
 		"url":               link.URL,
 		"stripe_account_id": stripeAccountID,
 	})
@@ -269,20 +281,20 @@ func GetStripe_Account_details_handler(w http.ResponseWriter, r *http.Request) {
 	// -------------------------------
 	authHeader := r.Header.Get("Authorization")
 	if authHeader == "" {
-		JSON(w, 401, false, "Authorization header missing", nil)
+		utils.JSON(w, 401, false, "Authorization header missing", nil)
 		return
 	}
 
 	parts := strings.Split(authHeader, " ")
 	if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
-		JSON(w, 401, false, "Invalid token format", nil)
+		utils.JSON(w, 401, false, "Invalid token format", nil)
 		return
 	}
 
 	tokenString := parts[1]
 	loginID, _, err := utils.ParseToken(tokenString)
 	if err != nil {
-		JSON(w, 401, false, "Invalid or expired token", nil)
+		utils.JSON(w, 401, false, "Invalid or expired token", nil)
 		return
 	}
 
@@ -299,7 +311,7 @@ func GetStripe_Account_details_handler(w http.ResponseWriter, r *http.Request) {
 
 	err = db.DB.QueryRow(query, loginID).Scan(&stripeAccountID)
 	if err == sql.ErrNoRows {
-		JSON(w, 404, false, "Stripe account not found for this partner", nil)
+		utils.JSON(w, 404, false, "Stripe account not found for this partner", nil)
 		return
 	} else if err != nil {
 		JSON(w, 500, false, "Database error", nil)

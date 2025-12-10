@@ -48,6 +48,16 @@ type APIResponse struct {
 	Data    interface{} `json:"data,omitempty"`
 }
 
+func GenerateToken(loginID int, email string) (string, error) {
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"login_id": loginID,
+		"email":    email,
+		// "exp":      time.Now().Add(24 * time.Hour).Unix(),
+	})
+
+	return token.SignedString([]byte("goeats-v01"))
+}
+
 func ParseToken(tokenString string) (int, string, error) {
 	token, err := jwt.Parse(tokenString, func(t *jwt.Token) (interface{}, error) {
 		return []byte("goeats-v01"), nil
