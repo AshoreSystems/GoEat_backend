@@ -1,4 +1,4 @@
-package routes
+package DeliveryPartner
 
 import (
 	"database/sql"
