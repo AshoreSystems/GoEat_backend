@@ -51,20 +51,22 @@ func PlaceOrder(w http.ResponseWriter, r *http.Request) {
 
 	type OrderItem struct {
 		MenuItemID int64   `json:"menu_item_id"`
+		MenuName   string  `json:"title"`
 		Qty        int     `json:"qty"`
 		Price      float64 `json:"price"`
 	}
 
 	type RequestBody struct {
-		CustomerID   int64       `json:"customer_id"`
-		RestaurantID int64       `json:"restaurant_id"`
-		AddressID    int64       `json:"address_id"`
-		Subtotal     float64     `json:"subtotal"`
-		TaxAmount    float64     `json:"tax_amount"`
-		DeliveryFee  float64     `json:"delivery_fee"`
-		TotalAmount  float64     `json:"total_amount"`
-		Items        []OrderItem `json:"items"`
-		StripeToken  string      `json:"stripe_token"`
+		CustomerID      int64       `json:"customer_id"`
+		RestaurantID    int64       `json:"restaurant_id"`
+		AddressID       int64       `json:"address_id"`
+		Subtotal        float64     `json:"subtotal"`
+		TaxAmount       float64     `json:"tax_amount"`
+		DeliveryFee     float64     `json:"delivery_fee"`
+		TotalAmount     float64     `json:"total_amount"`
+		Items           []OrderItem `json:"items"`
+		StripeToken     string      `json:"stripe_token"`
+		PaymentintentId string      `json:"payment_intent_id"`
 	}
 
 	var req RequestBody
@@ -94,7 +96,7 @@ func PlaceOrder(w http.ResponseWriter, r *http.Request) {
 	result, err := tx.Exec(`
 INSERT INTO tbl_orders 
 (order_number, customer_id, restaurant_id, address_id, subtotal, tax_amount, delivery_fee, total_amount, payment_method, status, order_placed_at) 
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Online', 'pending', NOW())
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Online','pending', NOW())
 `, orderNumber, req.CustomerID, req.RestaurantID, req.AddressID, req.Subtotal, req.TaxAmount, req.DeliveryFee, req.TotalAmount)
 
 	if err != nil {
@@ -109,9 +111,9 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Online', 'pending', NOW())
 	for _, item := range req.Items {
 		_, err := tx.Exec(`
         INSERT INTO tbl_order_items 
-        (order_id, menu_item_id, qty, base_price, price, created_at)
-        VALUES (?, ?, ?, ?, ?, NOW())
-    `, orderID, item.MenuItemID, item.Qty, item.Price, item.Price)
+        (order_id, menu_item_id, title,qty, base_price, price, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, NOW())
+    `, orderID, item.MenuItemID, item.MenuName, item.Qty, item.Price, item.Price)
 
 		if err != nil {
 			fmt.Println("Order items insert error:", err)
@@ -120,30 +122,23 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Online', 'pending', NOW())
 			return
 		}
 	}
-
-	// Stripe Payment
-	//stripe.Key = "sk_test_xxxxxxxxxxxxxxxxxxxxx" // Replace with real key
-	stripe.Key = os.Getenv("STRIPE_SK")
-
-	params := &stripe.PaymentIntentParams{
-		Amount:        stripe.Int64(int64(req.TotalAmount * 100)),
-		Currency:      stripe.String(string(stripe.CurrencyINR)),
-		PaymentMethod: stripe.String(req.StripeToken),
-		Confirm:       stripe.Bool(true),
+	id := req.PaymentintentId
+	if id == "" {
+		http.Error(w, "payment_intent_id is required", http.StatusBadRequest)
+		return
 	}
-
-	paymentIntent, err := paymentintent.New(params)
+	stripe.Key = os.Getenv("STRIPE_SK")
+	pi, err := paymentintent.Get(id, nil)
 	if err != nil {
-		tx.Rollback()
-		sendErrorResponse(w, "Payment failed")
+		http.Error(w, "Stripe error: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	_, err = tx.Exec(`
 INSERT INTO tbl_payment_transactions 
-(order_id, customer_id, transaction_reference, payment_mode, payment_gateway, amount, status, created_at) 
-VALUES (?, ?, ?, 'Online', 'stripe', ?, ?, NOW())
-`, orderID, req.CustomerID, paymentIntent.ID, req.TotalAmount, paymentIntent.Status)
+(order_id, customer_id, transaction_reference, payment_mode, payment_gateway, amount, status,brand,last4,payment_intent,created_at) 
+VALUES (?, ?, ?, 'Card', 'stripe', ?, ?, ?, ?, ?, NOW())
+`, orderID, req.CustomerID, "", req.TotalAmount, "success", pi.Charges.Data[0].PaymentMethodDetails.Card.Brand, pi.Charges.Data[0].PaymentMethodDetails.Card.Last4, req.PaymentintentId)
 
 	if err != nil {
 		tx.Rollback()
@@ -151,8 +146,7 @@ VALUES (?, ?, ?, 'Online', 'stripe', ?, ?, NOW())
 		return
 	}
 
-	tx.Exec("UPDATE tbl_orders SET payment_status='success', status='placed' WHERE id=?", orderID)
-
+	tx.Exec("UPDATE tbl_orders SET payment_status='success', status='pending' WHERE id=?", orderID)
 	tx.Commit()
 
 	sendSuccessResponse(w, map[string]interface{}{
@@ -204,4 +198,312 @@ func Create_payment_intent(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
+}
+
+func GetDefaultAddress(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	// Parse customer_id from request
+	var req struct {
+		CustomerID int `json:"customer_id"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+
+	// Query database
+	query := `
+		SELECT 
+			id, customer_id, full_name, phone_number, address, city, state, 
+			country, postal_code, latitude, longitude, is_default
+		FROM customer_delivery_addresses
+		WHERE customer_id = ? AND is_default = 1
+		LIMIT 1
+	`
+
+	var addr CustomerAddress
+
+	err := db.DB.QueryRow(query, req.CustomerID).Scan(
+		&addr.ID,
+		&addr.CustomerID,
+		&addr.FullName,
+		&addr.PhoneNumber,
+		&addr.AddressLine1,
+		&addr.City,
+		&addr.State,
+		&addr.Country,
+		&addr.PostalCode,
+		&addr.Latitude,
+		&addr.Longitude,
+		&addr.IsDefault,
+	)
+
+	if err == sql.ErrNoRows {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "No default address found",
+		})
+		return
+	}
+
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Send Response
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"data":    addr,
+	})
+}
+
+func UpdateDefaultAddress(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	// Parse request
+	var req struct {
+		CustomerID int `json:"customer_id"`
+		AddressID  int `json:"address_id"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	tx, err := db.DB.Begin()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Step 1: Reset all addresses for this customer
+	_, err = tx.Exec(
+		`UPDATE customer_delivery_addresses 
+		 SET is_default = 0 
+		 WHERE customer_id = ?`,
+		req.CustomerID,
+	)
+	if err != nil {
+		tx.Rollback()
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Step 2: Set default to selected address
+	res, err := tx.Exec(
+		`UPDATE customer_delivery_addresses 
+		 SET is_default = 1 
+		 WHERE id = ? AND customer_id = ?`,
+		req.AddressID,
+		req.CustomerID,
+	)
+	if err != nil {
+		tx.Rollback()
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	rows, _ := res.RowsAffected()
+	if rows == 0 {
+		tx.Rollback()
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "Address not found for this customer",
+		})
+		return
+	}
+
+	// Commit
+	if err := tx.Commit(); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Fetch updated default address
+	var updated CustomerAddress
+	query := `
+		SELECT id, customer_id, full_name, phone_number, address, city, state, 
+		       country, postal_code, latitude, longitude, is_default
+		FROM customer_delivery_addresses
+		WHERE id = ?`
+	err = db.DB.QueryRow(query, req.AddressID).Scan(
+		&updated.ID,
+		&updated.CustomerID,
+		&updated.FullName,
+		&updated.PhoneNumber,
+		&updated.AddressLine1,
+		&updated.City,
+		&updated.State,
+		&updated.Country,
+		&updated.PostalCode,
+		&updated.Latitude,
+		&updated.Longitude,
+		&updated.IsDefault,
+	)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": "Default address updated successfully",
+		"data":    updated,
+	})
+}
+
+type CustomerOrderRequest struct {
+	CustomerID uint64 `json:"customer_id"`
+}
+
+type OrderItem struct {
+	ItemID     uint64  `json:"item_id"`
+	MenuItemID uint64  `json:"menu_item_id"`
+	Title      string  `json:"title"`
+	Qty        int     `json:"qty"`
+	BasePrice  float64 `json:"base_price"`
+	Price      float64 `json:"price"`
+	ImageURL   string  `json:"image_url"`
+}
+
+type Order struct {
+	OrderID       uint64      `json:"order_id"`
+	OrderNumber   string      `json:"order_number"`
+	RestaurantID  uint64      `json:"restaurant_id"`
+	Subtotal      float64     `json:"subtotal"`
+	TaxAmount     float64     `json:"tax_amount"`
+	DeliveryFee   float64     `json:"delivery_fee"`
+	TipAmount     float64     `json:"tip_amount"`
+	TotalAmount   float64     `json:"total_amount"`
+	PaymentMethod string      `json:"payment_method"`
+	PaymentStatus string      `json:"payment_status"`
+	Status        string      `json:"status"`
+	OrderPlacedAt string      `json:"order_placed_at"`
+	DeliveryTime  *string     `json:"delivery_time"`
+	Items         []OrderItem `json:"items"`
+}
+
+type APIOrderResponse struct {
+	Status  bool        `json:"status"`
+	Message string      `json:"message"`
+	Data    interface{} `json:"data"`
+}
+
+func GetCustomerOrders(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	var req CustomerOrderRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		json.NewEncoder(w).Encode(APIResponse{Status: false, Message: "Invalid JSON body"})
+		return
+	}
+
+	if req.CustomerID == 0 {
+		json.NewEncoder(w).Encode(APIResponse{Status: false, Message: "customer_id is required"})
+		return
+	}
+
+	query := `
+        SELECT 
+            o.id, o.order_number, o.restaurant_id,
+            o.subtotal, o.tax_amount, o.delivery_fee,
+            o.tip_amount, o.total_amount,
+            o.payment_method, o.payment_status, o.status,
+            o.order_placed_at, o.delivery_time,
+
+            oi.id, oi.menu_item_id, oi.title, oi.qty,
+            oi.base_price, oi.price, oi.image_url
+
+        FROM tbl_orders o
+        LEFT JOIN tbl_order_items oi ON o.id = oi.order_id
+        WHERE o.customer_id = ?
+        ORDER BY oi.id DESC;
+    `
+
+	rows, err := db.DB.Query(query, req.CustomerID)
+	if err != nil {
+		json.NewEncoder(w).Encode(APIResponse{Status: false, Message: err.Error()})
+		return
+	}
+	defer rows.Close()
+
+	orders := make(map[uint64]*Order)
+
+	for rows.Next() {
+		var o Order
+		var i OrderItem
+
+		// NULL-safe fields
+		var (
+			itemID, menuItemID, qty sql.NullInt64
+			title, imageURL         sql.NullString
+			basePrice, price        sql.NullFloat64
+		)
+
+		err := rows.Scan(
+			&o.OrderID, &o.OrderNumber, &o.RestaurantID,
+			&o.Subtotal, &o.TaxAmount, &o.DeliveryFee,
+			&o.TipAmount, &o.TotalAmount,
+			&o.PaymentMethod, &o.PaymentStatus, &o.Status,
+			&o.OrderPlacedAt, &o.DeliveryTime,
+
+			&itemID, &menuItemID, &title, &qty,
+			&basePrice, &price, &imageURL,
+		)
+		if err != nil {
+			json.NewEncoder(w).Encode(APIResponse{Status: false, Message: err.Error()})
+			return
+		}
+
+		// Create order entry if not already created
+		if _, exists := orders[o.OrderID]; !exists {
+			orders[o.OrderID] = &Order{
+				OrderID:       o.OrderID,
+				OrderNumber:   o.OrderNumber,
+				RestaurantID:  o.RestaurantID,
+				Subtotal:      o.Subtotal,
+				TaxAmount:     o.TaxAmount,
+				DeliveryFee:   o.DeliveryFee,
+				TipAmount:     o.TipAmount,
+				TotalAmount:   o.TotalAmount,
+				PaymentMethod: o.PaymentMethod,
+				PaymentStatus: o.PaymentStatus,
+				Status:        o.Status,
+				OrderPlacedAt: o.OrderPlacedAt,
+				DeliveryTime:  o.DeliveryTime,
+				Items:         []OrderItem{},
+			}
+		}
+
+		// Add items only if available
+		if itemID.Valid {
+			i = OrderItem{
+				ItemID:     uint64(itemID.Int64),
+				MenuItemID: uint64(menuItemID.Int64),
+				Title:      title.String,
+				Qty:        int(qty.Int64),
+				BasePrice:  basePrice.Float64,
+				Price:      price.Float64,
+				ImageURL:   imageURL.String,
+			}
+
+			orders[o.OrderID].Items = append(orders[o.OrderID].Items, i)
+		}
+	}
+
+	// Convert map to slice
+	finalOrders := make([]*Order, 0)
+	for _, v := range orders {
+		finalOrders = append(finalOrders, v)
+	}
+
+	json.NewEncoder(w).Encode(APIOrderResponse{
+		Status:  true,
+		Message: "Orders fetched successfully",
+		Data:    finalOrders,
+	})
 }
