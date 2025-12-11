@@ -13,7 +13,7 @@ func Connect() {
 	var err error
 
 	// 👇 No username or password — just connect to local MySQL
-	dsn := "root:@tcp(127.0.0.1:3306)/osm_db"
+	dsn := "goeats:Admin1234@tcp(127.0.0.1:3306)/goeats_db"
 
 	DB, err = sql.Open("mysql", dsn)
 	if err != nil {
@@ -25,5 +25,5 @@ func Connect() {
 		panic(err)
 	}
 
-	fmt.Println("✅ Connected to MySQL Database (osm_db)")
+	fmt.Println("✅ Connected to MySQL Database (goeats_db)")
 }
