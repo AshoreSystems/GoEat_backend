@@ -11,7 +11,6 @@ import (
 	"GoEatsapi/routes"
 	resto "GoEatsapi/routes/Resto"
 	DeliveryPartner "GoEatsapi/routes/delivery_partner"
-	"GoEatsapi/utils"
 
 	"github.com/joho/godotenv"
 )
@@ -24,7 +23,7 @@ func main() {
 	}
 
 	db.Connect()
-	utils.InitB2()
+	//utils.InitB2()
 	config.InitStripe()
 
 	mux := http.NewServeMux()
@@ -58,6 +57,8 @@ func main() {
 	mux.HandleFunc("/get-default-address", middleware.AuthMiddleware(routes.GetDefaultAddress))
 	mux.HandleFunc("/update-default-address", middleware.AuthMiddleware(routes.UpdateDefaultAddress))
 	mux.HandleFunc("/my-orders", middleware.AuthMiddleware(routes.GetCustomerOrders))
+	mux.HandleFunc("/cancel-customer-order", middleware.AuthMiddleware(routes.CancelCustomerOrder))
+	mux.HandleFunc("/order-rating-review", middleware.AuthMiddleware(routes.CreateRatingReview))
 	// Partner
 	mux.HandleFunc("/login", routes.LoginHandler)
 	mux.HandleFunc("/users", routes.GetUsers)

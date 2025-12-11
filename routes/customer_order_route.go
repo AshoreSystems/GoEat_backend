@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/stripe/stripe-go"
@@ -506,4 +507,414 @@ func GetCustomerOrders(w http.ResponseWriter, r *http.Request) {
 		Message: "Orders fetched successfully",
 		Data:    finalOrders,
 	})
+}
+
+func CancelCustomerOrder(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	var req struct {
+		OrderID      uint64 `json:"order_id"`
+		CustomerID   uint64 `json:"customer_id"`
+		CancelReason string `json:"cancel_reason"`
+	}
+
+	// Parse JSON
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.WriteHeader(http.StatusBadRequest) // 400
+		json.NewEncoder(w).Encode(CancleAPIResponse{
+			Status:    false,
+			Message:   "Invalid JSON format.",
+			ErrorCode: "INVALID_JSON",
+		})
+		return
+	}
+
+	// Validations
+	if req.OrderID == 0 {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(CancleAPIResponse{
+			Status:    false,
+			Message:   "order_id is required.",
+			ErrorCode: "INVALID_ORDER_ID",
+		})
+		return
+	}
+
+	if req.CustomerID == 0 {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(CancleAPIResponse{
+			Status:    false,
+			Message:   "customer_id is required.",
+			ErrorCode: "INVALID_CUSTOMER_ID",
+		})
+		return
+	}
+
+	if req.CancelReason == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(CancleAPIResponse{
+			Status:    false,
+			Message:   "cancel_reason is required.",
+			ErrorCode: "INVALID_REASON",
+		})
+		return
+	}
+
+	// Fetch order
+	var status string
+	var dbCustomerID uint64
+
+	err := db.DB.QueryRow(`
+		SELECT status, customer_id 
+		FROM tbl_orders 
+		WHERE id = ?`, req.OrderID).
+		Scan(&status, &dbCustomerID)
+
+	if err == sql.ErrNoRows {
+		w.WriteHeader(http.StatusNotFound) // 404
+		json.NewEncoder(w).Encode(CancleAPIResponse{
+			Status:    false,
+			Message:   "Order not found.",
+			ErrorCode: "ORDER_NOT_FOUND",
+		})
+		return
+	}
+
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError) // 500
+		json.NewEncoder(w).Encode(CancleAPIResponse{
+			Status:    false,
+			Message:   "Database error.",
+			ErrorCode: "DB_ERROR",
+		})
+		return
+	}
+
+	// Wrong customer
+	if dbCustomerID != req.CustomerID {
+		w.WriteHeader(http.StatusUnauthorized) // 401
+		json.NewEncoder(w).Encode(CancleAPIResponse{
+			Status:    false,
+			Message:   "You are not authorized to cancel this order.",
+			ErrorCode: "UNAUTHORIZED_CUSTOMER",
+		})
+		return
+	}
+
+	// Allowed cancellation statuses
+	allowed := map[string]bool{
+		"pending":   true,
+		"accepted":  true,
+		"preparing": true,
+	}
+
+	if !allowed[status] {
+		w.WriteHeader(http.StatusUnprocessableEntity) // 422
+		json.NewEncoder(w).Encode(CancleAPIResponse{
+			Status:    false,
+			Message:   "Order cannot be cancelled at this stage.",
+			ErrorCode: "CANCELLATION_NOT_ALLOWED",
+		})
+		return
+	}
+
+	// Cancel the order
+	_, updateErr := db.DB.Exec(`
+		UPDATE tbl_orders 
+		SET status = 'cancelled', cancel_reason = ?, updated_at = NOW()
+		WHERE id = ?`,
+		req.CancelReason, req.OrderID,
+	)
+
+	if updateErr != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(CancleAPIResponse{
+			Status:    false,
+			Message:   "Failed to cancel order.",
+			ErrorCode: "UPDATE_FAILED",
+		})
+		return
+	}
+
+	// SUCCESS → ALWAYS 200
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(CancleAPIResponse{
+		Status:  true,
+		Message: "Order cancelled successfully.",
+		Data: map[string]interface{}{
+			"order_id":      req.OrderID,
+			"status":        "cancelled",
+			"cancel_reason": req.CancelReason,
+		},
+	})
+}
+
+type CancleAPIResponse struct {
+	Status    bool        `json:"status"`               // success or failure
+	Message   string      `json:"message"`              // readable message
+	ErrorCode string      `json:"error_code,omitempty"` // optional error code
+	Data      interface{} `json:"data,omitempty"`       // result payload
+}
+
+func CreateRatingReview(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	var req struct {
+		UserID       uint64 `json:"user_id"`
+		RestaurantID uint64 `json:"restaurant_id"`
+		OrderID      uint64 `json:"order_id"`
+		ItemID       string `json:"item_id"`
+		Rating       int    `json:"rating"`
+		Review       string `json:"review"`
+	}
+
+	// Parse JSON
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(RatingAPIResponse{
+			Status:    false,
+			Message:   "Invalid JSON format.",
+			ErrorCode: "INVALID_JSON",
+		})
+		return
+	}
+
+	// ==========================
+	// BASIC VALIDATIONS
+	// ==========================
+	if req.UserID == 0 {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(RatingAPIResponse{
+			Status:    false,
+			Message:   "user_id is required.",
+			ErrorCode: "INVALID_USER",
+		})
+		return
+	}
+
+	if req.RestaurantID == 0 {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(RatingAPIResponse{
+			Status:    false,
+			Message:   "restaurant_id is required.",
+			ErrorCode: "INVALID_RESTAURANT",
+		})
+		return
+	}
+
+	if req.OrderID == 0 {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(RatingAPIResponse{
+			Status:    false,
+			Message:   "order_id is required.",
+			ErrorCode: "INVALID_ORDER_ID",
+		})
+		return
+	}
+
+	if req.Rating < 1 || req.Rating > 5 {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(RatingAPIResponse{
+			Status:    false,
+			Message:   "rating must be between 1 and 5.",
+			ErrorCode: "INVALID_RATING",
+		})
+		return
+	}
+
+	// ==========================
+	//  CHECK USER EXISTS
+	// ==========================
+	var temp uint64
+	err := db.DB.QueryRow("SELECT id FROM customer WHERE id = ?", req.UserID).Scan(&temp)
+	if err == sql.ErrNoRows {
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(RatingAPIResponse{
+			Status:    false,
+			Message:   "User not found.",
+			ErrorCode: "USER_NOT_FOUND",
+		})
+		return
+	} else if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(RatingAPIResponse{
+			Status:    false,
+			Message:   "Database error.",
+			ErrorCode: "DB_ERROR",
+		})
+		return
+	}
+
+	// ==========================
+	// CHECK RESTAURANT EXISTS
+	// ==========================
+	err = db.DB.QueryRow("SELECT id FROM restaurants WHERE id = ?", req.RestaurantID).Scan(&temp)
+	if err == sql.ErrNoRows {
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(RatingAPIResponse{
+			Status:    false,
+			Message:   "Restaurant not found.",
+			ErrorCode: "RESTAURANT_NOT_FOUND",
+		})
+		return
+	} else if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(RatingAPIResponse{
+			Status:    false,
+			Message:   "Database error.",
+			ErrorCode: "DB_ERROR",
+		})
+		return
+	}
+
+	// ==========================
+	// CHECK ORDER EXISTS
+	// ==========================
+	err = db.DB.QueryRow("SELECT id FROM tbl_orders WHERE id = ?", req.OrderID).Scan(&temp)
+	if err == sql.ErrNoRows {
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(RatingAPIResponse{
+			Status:    false,
+			Message:   "Order not found.",
+			ErrorCode: "ORDER_NOT_FOUND",
+		})
+		return
+	} else if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(RatingAPIResponse{
+			Status:    false,
+			Message:   "Database error.",
+			ErrorCode: "DB_ERROR",
+		})
+		return
+	}
+
+	// ==========================
+	// CHECK ITEM EXISTS (if provided)
+	// ==========================
+	if req.ItemID != "" {
+
+		// Split string into slice
+		itemIDs := strings.Split(req.ItemID, ",")
+
+		for _, idStr := range itemIDs {
+
+			idStr = strings.TrimSpace(idStr)
+			if idStr == "" {
+				w.WriteHeader(http.StatusBadRequest)
+				json.NewEncoder(w).Encode(RatingAPIResponse{
+					Status:    false,
+					Message:   "Invalid item_id format.",
+					ErrorCode: "INVALID_ITEM_ID",
+				})
+				return
+			}
+
+			// Convert to int
+			itemID, convErr := strconv.Atoi(idStr)
+			if convErr != nil || itemID <= 0 {
+				w.WriteHeader(http.StatusBadRequest)
+				json.NewEncoder(w).Encode(RatingAPIResponse{
+					Status:    false,
+					Message:   "item_id must contain valid numbers.",
+					ErrorCode: "INVALID_ITEM_ID",
+				})
+				return
+			}
+
+			// Check each item exists
+			var temp int
+			dbErr := db.DB.QueryRow("SELECT id FROM menu_items WHERE id = ?", itemID).Scan(&temp)
+			if dbErr == sql.ErrNoRows {
+				w.WriteHeader(http.StatusNotFound)
+				json.NewEncoder(w).Encode(RatingAPIResponse{
+					Status:    false,
+					Message:   fmt.Sprintf("Item not found: %d", itemID),
+					ErrorCode: "ITEM_NOT_FOUND",
+				})
+				return
+			} else if dbErr != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				json.NewEncoder(w).Encode(RatingAPIResponse{
+					Status:    false,
+					Message:   "Database error.",
+					ErrorCode: "DB_ERROR",
+				})
+				return
+			}
+		}
+	}
+
+	// ==========================
+	//  CHECK DUPLICATE RATING (same user + order)
+	// ==========================
+	var existing uint64
+	err = db.DB.QueryRow(`
+		SELECT id 
+		FROM tbl_ratings_reviews 
+		WHERE user_id = ? AND order_id = ?
+	`, req.UserID, req.OrderID).Scan(&existing)
+
+	if err != sql.ErrNoRows && err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(RatingAPIResponse{
+			Status:    false,
+			Message:   "Database error.",
+			ErrorCode: "DB_ERROR",
+		})
+		return
+	}
+
+	if existing > 0 {
+		w.WriteHeader(http.StatusConflict)
+		json.NewEncoder(w).Encode(RatingAPIResponse{
+			Status:    false,
+			Message:   "Rating already submitted for this order.",
+			ErrorCode: "RATING_EXISTS",
+		})
+		return
+	}
+
+	// ==========================
+	// INSERT RATING
+	// ==========================
+	_, err = db.DB.Exec(`
+		INSERT INTO tbl_ratings_reviews 
+		(user_id, restaurant_id, order_id, item_id, rating, review, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, NOW(), NOW())
+	`,
+		req.UserID, req.RestaurantID, req.OrderID, req.ItemID, req.Rating, req.Review,
+	)
+
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(RatingAPIResponse{
+			Status:    false,
+			Message:   "Failed to submit rating.",
+			ErrorCode: "DB_INSERT_ERROR",
+		})
+		return
+	}
+
+	// SUCCESS → ALWAYS 200
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(RatingAPIResponse{
+		Status:  true,
+		Message: "Rating submitted successfully.",
+		Data: map[string]interface{}{
+			"user_id":       req.UserID,
+			"restaurant_id": req.RestaurantID,
+			"order_id":      req.OrderID,
+			"item_id":       req.ItemID,
+			"rating":        req.Rating,
+			"review":        req.Review,
+		},
+	})
+}
+
+type RatingAPIResponse struct {
+	Status    bool        `json:"status"`
+	Message   string      `json:"message"`
+	ErrorCode string      `json:"error_code,omitempty"`
+	Data      interface{} `json:"data,omitempty"`
 }
