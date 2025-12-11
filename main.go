@@ -9,6 +9,8 @@ import (
 	"GoEatsapi/db"
 	"GoEatsapi/middleware"
 	"GoEatsapi/routes"
+	resto "GoEatsapi/routes/Resto"
+	DeliveryPartner "GoEatsapi/routes/delivery_partner"
 	"GoEatsapi/utils"
 
 	"github.com/joho/godotenv"
@@ -30,6 +32,11 @@ func main() {
 	mux.HandleFunc("/admin_login", routes.AdimnLogin)
 	mux.HandleFunc("/admin_get_partners", routes.Get_partners_list)
 	mux.HandleFunc("/admin_update_request_status_of_partner", routes.Update_request_status_of_partner)
+
+	//resto
+	mux.HandleFunc("/api/resto-signin", resto.RestoLogin)
+	mux.HandleFunc("/api/resto-orders", resto.GetRestoOrders)
+	mux.HandleFunc("/api/resto-orders/accept", resto.UpdateOrderStatus)
 
 	//Customer
 	mux.HandleFunc("/signup-customer", routes.SingUp_Customer)
@@ -54,17 +61,18 @@ func main() {
 	// Partner
 	mux.HandleFunc("/login", routes.LoginHandler)
 	mux.HandleFunc("/users", routes.GetUsers)
-	mux.HandleFunc("/signup", routes.SignUp)
+	mux.HandleFunc("/signup", DeliveryPartner.SignUp)
 	mux.HandleFunc("/Register", routes.RegisterHandler)
 	mux.HandleFunc("/verify", routes.VerifyEmailHandler)
 	mux.HandleFunc("/Get_user_email_status", routes.GetEmailStatusHandler)
-	mux.HandleFunc("/update_partner_details", routes.UpdateDeliveryPartnerHandler)
+	mux.HandleFunc("/update_partner_details", DeliveryPartner.UpdateDeliveryPartnerHandler)
+	mux.HandleFunc("/api/partner/orders_by_status", DeliveryPartner.GetPartnerOrder)
 
 	//after login apis
-	mux.HandleFunc("/get_partner_details", routes.Get_partner_details)
-	mux.HandleFunc("/stripe/create-account", routes.CreateStripeOnboarding)
-	mux.HandleFunc("/store_partner_bank_account_details", routes.CreatePartnerBankAccountHandler)
-	mux.HandleFunc("/stripe/get-account-details", routes.GetStripe_Account_details_handler)
+	mux.HandleFunc("/get_partner_details", DeliveryPartner.Get_partner_details)
+	mux.HandleFunc("/stripe/create-account", DeliveryPartner.CreateStripeOnboarding)
+	mux.HandleFunc("/store_partner_bank_account_details", DeliveryPartner.CreatePartnerBankAccountHandler)
+	mux.HandleFunc("/stripe/get-account-details", DeliveryPartner.GetStripe_Account_details_handler)
 
 	mux.Handle("/uploads/", http.StripPrefix("/uploads/", http.FileServer(http.Dir("uploads"))))
 
