@@ -55,7 +55,9 @@ func main() {
 	mux.HandleFunc("/customer-update-profile", middleware.AuthMiddleware(routes.UpdateCustomerProfile))
 	mux.HandleFunc("/customer-place-order", middleware.AuthMiddleware(routes.PlaceOrder))
 	mux.HandleFunc("/payment/create-intent", middleware.AuthMiddleware(routes.Create_payment_intent))
-
+	mux.HandleFunc("/get-default-address", middleware.AuthMiddleware(routes.GetDefaultAddress))
+	mux.HandleFunc("/update-default-address", middleware.AuthMiddleware(routes.UpdateDefaultAddress))
+	mux.HandleFunc("/my-orders", middleware.AuthMiddleware(routes.GetCustomerOrders))
 	// Partner
 	mux.HandleFunc("/login", routes.LoginHandler)
 	mux.HandleFunc("/users", routes.GetUsers)
