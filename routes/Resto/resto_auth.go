@@ -177,13 +177,15 @@ func RestoCheckDetails(w http.ResponseWriter, r *http.Request) {
 	// -------------------------------
 	var business_owner_name string
 	var restaurantprofilereqStatus string
+	var restaurant_name string
 
 	err = db.DB.QueryRow(`
-        SELECT business_owner_name, status
+        SELECT business_owner_name,restaurant_name, status
         FROM restaurants
         WHERE id = ?
     `, loginID).Scan(
 		&business_owner_name,
+		&restaurant_name,
 		&restaurantprofilereqStatus,
 	)
 
@@ -196,6 +198,7 @@ func RestoCheckDetails(w http.ResponseWriter, r *http.Request) {
 		"email": email,
 		// "email_verified":    emailVerified,
 		"business_owner_name":          business_owner_name,
+		"restaurant_name":              restaurant_name,
 		"restaurant_profilereq_Status": restaurantprofilereqStatus,
 		// ✔ ADD NEW FLAGS
 

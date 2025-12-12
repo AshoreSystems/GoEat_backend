@@ -12,16 +12,14 @@ import (
 	"math/rand"
 	"time"
 
-	"GoEatsapi/mailer"
-
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
 )
 
-var smtpCfg = mailer.Config{
-	APIKey: "api-F5E04BD8DD2843099F47E0D3D4FB16AF",
-	From:   "kadir.pathan@aviontechnology.us",
-}
+// var smtpCfg = mailer.Config{
+// 	APIKey: "api-F5E04BD8DD2843099F47E0D3D4FB16AF",
+// 	From:   "kadir.pathan@aviontechnology.us",
+// }
 
 func JSON(w http.ResponseWriter, status int, success bool, msg string, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
@@ -130,10 +128,6 @@ func RegisterHandler(w http.ResponseWriter, r *http.Request) {
 
 	otp := GenerateOTP()
 
-	// Prepare email content
-	subject := "Your OTP Code"
-	body := fmt.Sprintf("Hello,\n\nYour OTP code is: %s\nIt will expire in 10 minutes.\n\nThank you.", otp)
-
 	// Send email in a goroutine (non-blocking)
 
 	//-----------------------------------
@@ -182,12 +176,13 @@ func RegisterHandler(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// send OTP email
-		err = mailer.SendEmail(smtpCfg, []string{email}, subject, body)
-		if err != nil {
-			fmt.Println("Failed to send OTP email:", err)
-			JSON(w, 500, false, "Failed to send OTP email", nil)
-			return
-		}
+
+		// err = mailer.SendOTPviaSMTP(sendgridKey, fromEmail, email, subject, body)
+		// if err != nil {
+		// 	fmt.Println("SMTP ERROR:", err)
+		// 	JSON(w, 500, false, "Failed to send OTP email", nil)
+		// 	return
+		// }
 
 		JSON(w, 200, true, "OTP sent", map[string]string{"otp": otp})
 		return
@@ -229,12 +224,12 @@ func RegisterHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// send OTP email
-	err = mailer.SendEmail(smtpCfg, []string{email}, subject, body)
-	if err != nil {
-		fmt.Println("Failed to send OTP email:", err)
-		JSON(w, 500, false, "Failed to send OTP email", nil)
-		return
-	}
+	// err = mailer.SendEmail(smtpCfg, []string{email}, subject, body)
+	// if err != nil {
+	// 	fmt.Println("Failed to send OTP email:", err)
+	// 	JSON(w, 500, false, "Failed to send OTP email", nil)
+	// 	return
+	// }
 
 	JSON(w, 200, true, "Registration successful. OTP sent.", map[string]string{"otp": otp})
 }

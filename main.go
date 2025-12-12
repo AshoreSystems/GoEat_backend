@@ -10,6 +10,7 @@ import (
 	"GoEatsapi/middleware"
 	"GoEatsapi/routes"
 	resto "GoEatsapi/routes/Resto"
+	Admin "GoEatsapi/routes/admin"
 	DeliveryPartner "GoEatsapi/routes/delivery_partner"
 
 	"github.com/joho/godotenv"
@@ -27,9 +28,11 @@ func main() {
 
 	mux := http.NewServeMux()
 	// Admin
-	mux.HandleFunc("/admin_login", routes.AdimnLogin)
-	mux.HandleFunc("/admin_get_partners", routes.Get_partners_list)
-	mux.HandleFunc("/admin_update_request_status_of_partner", routes.Update_request_status_of_partner)
+	mux.HandleFunc("/admin_login", Admin.AdimnLogin)
+	mux.HandleFunc("/admin_get_partners", Admin.Get_partners_list)
+	mux.HandleFunc("/admin_update_request_status_of_partner", Admin.Update_request_status_of_partner)
+	mux.HandleFunc("/admin_get_restaurants", Admin.Get_restaurants_list)
+	mux.HandleFunc("/admin_update_request_status_of_restaurant", Admin.Update_request_status_of_restaurant)
 
 	//resto
 	mux.HandleFunc("/api/resto-signin", resto.RestoLogin)
@@ -37,6 +40,8 @@ func main() {
 	mux.HandleFunc("/api/resto-RestoDetails", resto.RestoCheckDetails)
 	mux.HandleFunc("/api/resto-orders", resto.GetRestoOrders)
 	mux.HandleFunc("/api/resto-orders/accept", resto.UpdateOrderStatus)
+	mux.HandleFunc("/api/resto-stripe/get-account-details", resto.GetStripe_Account_details_handler)
+	mux.HandleFunc("/api/resto-stripe/create-account", resto.CreateStripeRestaurantOnboarding)
 
 	//Customer
 	mux.HandleFunc("/signup-customer", routes.SingUp_Customer)
