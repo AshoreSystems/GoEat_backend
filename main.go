@@ -60,6 +60,9 @@ func main() {
 	mux.HandleFunc("/my-orders", middleware.AuthMiddleware(routes.GetCustomerOrders))
 	mux.HandleFunc("/cancel-customer-order", middleware.AuthMiddleware(routes.CancelCustomerOrder))
 	mux.HandleFunc("/order-rating-review", middleware.AuthMiddleware(routes.CreateRatingReview))
+	mux.HandleFunc("/add-wishlist", middleware.AuthMiddleware(routes.AddToWishlist))
+	mux.HandleFunc("/remove-wishlist", middleware.AuthMiddleware(routes.RemoveFromWishlist))
+	mux.HandleFunc("/get-wishlist", middleware.AuthMiddleware(routes.GetWishlist))
 	// Partner
 	mux.HandleFunc("/login", routes.LoginHandler)
 	mux.HandleFunc("/users", routes.GetUsers)

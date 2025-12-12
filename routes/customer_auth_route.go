@@ -390,7 +390,7 @@ func CustomerResendOTP(w http.ResponseWriter, r *http.Request) {
 		"status":  true,
 		"message": "OTP resent successfully",
 		// "email":   email,
-		// "otp":     otp, // remove later if sending via email/sms
+		"otp": otp, // remove later if sending via email/sms
 	}
 
 	w.Header().Set("Content-Type", "application/json")
