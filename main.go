@@ -65,6 +65,7 @@ func main() {
 	mux.HandleFunc("/my-orders", middleware.AuthMiddleware(routes.GetCustomerOrders))
 	mux.HandleFunc("/cancel-customer-order", middleware.AuthMiddleware(routes.CancelCustomerOrder))
 	mux.HandleFunc("/order-rating-review", middleware.AuthMiddleware(routes.CreateRatingReview))
+
 	// Partner
 	mux.HandleFunc("/login", routes.LoginHandler)
 	mux.HandleFunc("/users", routes.GetUsers)
@@ -74,6 +75,7 @@ func main() {
 	mux.HandleFunc("/Get_user_email_status", routes.GetEmailStatusHandler)
 	mux.HandleFunc("/update_partner_details", DeliveryPartner.UpdateDeliveryPartnerHandler)
 	mux.HandleFunc("/api/partner/orders_by_status", DeliveryPartner.GetPartnerOrder)
+	mux.HandleFunc("/api/partner/get-dashboard-graph", DeliveryPartner.GetOrderGraph)
 
 	//after login apis
 	mux.HandleFunc("/get_partner_details", DeliveryPartner.Get_partner_details)
