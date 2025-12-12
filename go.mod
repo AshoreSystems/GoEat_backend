@@ -20,6 +20,11 @@ require (
 )
 
 require (
+	github.com/sendgrid/rest v2.6.9+incompatible // indirect
+	github.com/sendgrid/sendgrid-go v3.16.1+incompatible // indirect
+)
+
+require (
 	filippo.io/edwards25519 v1.1.0 // indirect
 	golang.org/x/crypto v0.44.0
 )
