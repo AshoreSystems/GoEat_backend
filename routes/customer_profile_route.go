@@ -418,8 +418,8 @@ func DeleteCustomerAddress(w http.ResponseWriter, r *http.Request) {
 }
 
 type UpdateProfileRequest struct {
-	UserID       int64  `json:"user_id"`
-	LoginID      int64  `json:"login_id"`
+	UserID       int    `json:"user_id"`
+	LoginID      int    `json:"login_id"`
 	FullName     string `json:"full_name"`
 	DOB          string `json:"dob"`
 	Email        string `json:"email"`
@@ -466,10 +466,10 @@ func UpdateCustomerProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if emailCount > 0 {
-		sendErrorResponse(w, "Email already exists")
-		return
-	}
+	// if emailCount > 0 {
+	// 	sendErrorResponse(w, "Email already exists")
+	// 	return
+	// }
 
 	// Validate DOB
 	var dobVal sql.NullString
@@ -532,4 +532,78 @@ func successResponse(w http.ResponseWriter, data interface{}) {
 		"data":   data,
 	}
 	json.NewEncoder(w).Encode(response)
+}
+
+type ContactUsRequest struct {
+	UserType string `json:"user_type"`
+	UserID   uint64 `json:"user_id"`
+	Name     string `json:"name"`
+	Email    string `json:"email"`
+	Phone    string `json:"phone"`
+	Message  string `json:"message"`
+}
+
+type APIContactusResponse struct {
+	Status  bool   `json:"status"`
+	Message string `json:"message"`
+}
+
+func CreateContactUs(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	var req ContactUsRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(APIContactusResponse{
+			Status:  false,
+			Message: "Invalid request payload",
+		})
+		return
+	}
+
+	// Basic validation
+	if req.Name == "" || req.Email == "" || req.Message == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(APIContactusResponse{
+			Status:  false,
+			Message: "Name, email, and message are required",
+		})
+		return
+	}
+
+	// Default user_type
+	if req.UserType == "" {
+		req.UserType = "guest"
+	}
+
+	query := `
+		INSERT INTO tbl_contact_us
+		(user_type, user_id, name, email, phone, message)
+		VALUES (?, ?, ?, ?, ?, ?)
+	`
+
+	_, err := db.DB.Exec(
+		query,
+		req.UserType,
+		req.UserID,
+		req.Name,
+		req.Email,
+		req.Phone,
+		req.Message,
+	)
+
+	if err != nil {
+		//log.Println("Contact Us Insert Error:", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(APIContactusResponse{
+			Status:  false,
+			Message: "Failed to submit contact request",
+		})
+		return
+	}
+
+	json.NewEncoder(w).Encode(APIContactusResponse{
+		Status:  true,
+		Message: "Your message has been submitted successfully",
+	})
 }
