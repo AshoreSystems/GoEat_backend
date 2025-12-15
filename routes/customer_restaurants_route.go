@@ -75,7 +75,8 @@ func GetAllCategories(w http.ResponseWriter, r *http.Request) {
 }
 
 type CategoryRequest struct {
-	CategoryID int `json:"category_id"`
+	CategoryID int    `json:"category_id"`
+	CustomerID uint64 `json:"customer_id"`
 }
 type MenuItem struct {
 	MenuItemID  int     `json:"menu_item_id"`
@@ -91,6 +92,7 @@ type RestaurantData struct {
 	BusinessDescription string     `json:"business_description"`
 	CoverImages         string     `json:"cover_image"`
 	Rating              float64    `json:"rating"`
+	Wishlist            bool       `json:"wishlist"`
 	Items               []MenuItem `json:"items"`
 }
 
@@ -113,7 +115,6 @@ func GetRestaurantsByCategory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Updated Query
 	query := `
 	SELECT 
 		r.id AS restaurant_id,
@@ -159,10 +160,12 @@ func GetRestaurantsByCategory(w http.ResponseWriter, r *http.Request) {
 				BusinessDescription: businessDesc,
 				CoverImages:         CoverImages,
 				Rating:              rating,
+				Wishlist:            IsWishlist(req.CustomerID, rID), // ← NEW
 				Items:               []MenuItem{},
 			}
 		}
 
+		// Add menu items
 		restaurantsMap[rID].Items = append(restaurantsMap[rID].Items, item)
 	}
 
@@ -179,6 +182,19 @@ func GetRestaurantsByCategory(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
+}
+
+func IsWishlist(customerID uint64, restaurantID int) bool {
+	var count int
+	err := db.DB.QueryRow(
+		"SELECT COUNT(*) FROM tbl_customer_wishlist WHERE customer_id = ? AND restaurant_id = ?",
+		customerID, restaurantID,
+	).Scan(&count)
+
+	if err != nil {
+		return false
+	}
+	return count > 0
 }
 
 type MenuRequest struct {
@@ -495,4 +511,190 @@ func GetNearbyRestaurantMenu(w http.ResponseWriter, r *http.Request) {
 type MenuResponse struct {
 	Status bool        `json:"status"`
 	Items  interface{} `json:"items"`
+}
+
+func AddToWishlist(w http.ResponseWriter, r *http.Request) {
+
+	if r.Method != http.MethodPost {
+		sendErrorResponse(w, "Invalid request method")
+		return
+	}
+
+	var req struct {
+		CustomerID   int    `json:"customer_id"`
+		RestaurantID uint64 `json:"restaurant_id"`
+	}
+
+	err := json.NewDecoder(r.Body).Decode(&req)
+	if err != nil {
+		sendErrorResponse(w, "Invalid JSON format")
+		return
+	}
+
+	// STEP 1: Check if already in wishlist
+	var count int
+	checkQuery := `
+        SELECT COUNT(*) FROM tbl_customer_wishlist
+        WHERE customer_id = ? AND restaurant_id = ?
+    `
+	err = db.DB.QueryRow(checkQuery, req.CustomerID, req.RestaurantID).Scan(&count)
+	if err != nil {
+		sendErrorResponse(w, "Database error: "+err.Error())
+		return
+	}
+
+	if count > 0 {
+		// Already exists
+		resp := map[string]interface{}{
+			"status":  false,
+			"message": "Restaurant already added to wishlist",
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+		return
+	}
+
+	// STEP 2: Insert wishlist entry
+	insertQuery := `
+        INSERT INTO tbl_customer_wishlist (customer_id, restaurant_id)
+        VALUES (?, ?)
+    `
+	_, err = db.DB.Exec(insertQuery, req.CustomerID, req.RestaurantID)
+	if err != nil {
+		sendErrorResponse(w, "Failed to add to wishlist: "+err.Error())
+		return
+	}
+
+	// Success Response
+	resp := map[string]interface{}{
+		"status":  true,
+		"message": "Added to wishlist",
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+func RemoveFromWishlist(w http.ResponseWriter, r *http.Request) {
+
+	if r.Method != http.MethodPost {
+		sendErrorResponse(w, "Invalid request method")
+		return
+	}
+
+	var req struct {
+		CustomerID   int    `json:"customer_id"`
+		RestaurantID uint64 `json:"restaurant_id"`
+	}
+
+	err := json.NewDecoder(r.Body).Decode(&req)
+	if err != nil {
+		sendErrorResponse(w, "Invalid JSON format")
+		return
+	}
+
+	query := `
+        DELETE FROM tbl_customer_wishlist
+        WHERE customer_id = ? AND restaurant_id = ?
+    `
+	_, err = db.DB.Exec(query, req.CustomerID, req.RestaurantID)
+	if err != nil {
+		sendErrorResponse(w, "Failed to remove from wishlist: "+err.Error())
+		return
+	}
+
+	resp := map[string]interface{}{
+		"status":  true,
+		"message": "Removed from wishlist",
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+func GetWishlist(w http.ResponseWriter, r *http.Request) {
+
+	if r.Method != http.MethodPost {
+		sendErrorResponse(w, "Invalid request method")
+		return
+	}
+
+	var req struct {
+		CustomerID uint64 `json:"customer_id"`
+	}
+
+	err := json.NewDecoder(r.Body).Decode(&req)
+	if err != nil || req.CustomerID == 0 {
+		sendErrorResponse(w, "Invalid or missing customer_id")
+		return
+	}
+
+	query := `
+        SELECT 
+            r.id,
+            r.restaurant_name,
+            r.business_description,
+            r.rating,
+            r.cover_image
+        FROM tbl_customer_wishlist w
+        JOIN restaurants r ON w.restaurant_id = r.id
+        WHERE w.customer_id = ?
+    `
+
+	rows, err := db.DB.Query(query, req.CustomerID)
+	if err != nil {
+		sendErrorResponse(w, "Failed to fetch wishlist: "+err.Error())
+		return
+	}
+	defer rows.Close()
+	type WishlistItem struct {
+		ID             uint64  `json:"id"`
+		RestaurantID   uint64  `json:"restaurant_id"`
+		RestaurantName string  `json:"restaurant_name"`
+		BusinessDesc   string  `json:"business_description"`
+		Rating         float64 `json:"rating"`
+		CoverImage     *string `json:"cover_image"`
+		Wishlist       bool    `json:"wishlist"`
+	}
+
+	var list []WishlistItem
+
+	for rows.Next() {
+		var item WishlistItem
+
+		err := rows.Scan(
+			&item.ID,
+			&item.RestaurantName,
+			&item.BusinessDesc,
+			&item.Rating,
+			&item.CoverImage,
+		)
+
+		if err == nil {
+			item.RestaurantID = item.ID // assign explicitly
+			item.Wishlist = true
+			list = append(list, item)
+		}
+	}
+
+	// ---- IF NO DATA FOUND ----
+	if len(list) == 0 {
+		resp := map[string]interface{}{
+			"status":  false,
+			"message": "No wishlist found",
+			"data":    []interface{}{},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+		return
+	}
+
+	// ---- SUCCESS RESPONSE ----
+	resp := map[string]interface{}{
+		"status": true,
+		"data":   list,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
 }
