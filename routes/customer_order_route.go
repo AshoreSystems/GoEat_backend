@@ -496,6 +496,21 @@ func GetCustomerOrders(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// // Convert map to slice
+	// finalOrders := make([]*Order, 0)
+	// for _, v := range orders {
+	// 	finalOrders = append(finalOrders, v)
+	// }
+	// If no orders found
+	if len(orders) == 0 {
+		json.NewEncoder(w).Encode(APIOrderResponse{
+			Status:  true,
+			Message: "No orders found",
+			Data:    []*Order{}, // same type as finalOrders
+		})
+		return
+	}
+
 	// Convert map to slice
 	finalOrders := make([]*Order, 0)
 	for _, v := range orders {
@@ -507,6 +522,12 @@ func GetCustomerOrders(w http.ResponseWriter, r *http.Request) {
 		Message: "Orders fetched successfully",
 		Data:    finalOrders,
 	})
+
+	// json.NewEncoder(w).Encode(APIOrderResponse{
+	// 	Status:  true,
+	// 	Message: "Orders fetched successfully",
+	// 	Data:    finalOrders,
+	// })
 }
 
 func CancelCustomerOrder(w http.ResponseWriter, r *http.Request) {

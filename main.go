@@ -65,7 +65,10 @@ func main() {
 	mux.HandleFunc("/my-orders", middleware.AuthMiddleware(routes.GetCustomerOrders))
 	mux.HandleFunc("/cancel-customer-order", middleware.AuthMiddleware(routes.CancelCustomerOrder))
 	mux.HandleFunc("/order-rating-review", middleware.AuthMiddleware(routes.CreateRatingReview))
-
+	mux.HandleFunc("/add-wishlist", middleware.AuthMiddleware(routes.AddToWishlist))
+	mux.HandleFunc("/remove-wishlist", middleware.AuthMiddleware(routes.RemoveFromWishlist))
+	mux.HandleFunc("/get-wishlist", middleware.AuthMiddleware(routes.GetWishlist))
+	mux.HandleFunc("/contact-us", middleware.AuthMiddleware(routes.CreateContactUs))
 	// Partner
 	mux.HandleFunc("/login", routes.LoginHandler)
 	mux.HandleFunc("/users", routes.GetUsers)
@@ -89,7 +92,8 @@ func main() {
 
 	// Start server
 	fmt.Println("🚀 Server running on http://localhost:8080")
-	if err := http.ListenAndServe(":8080", handler); err != nil {
+	//if err := http.ListenAndServe(":8080", handler); err != nil {
+	if err := http.ListenAndServe(":8013", handler); err != nil {
 		fmt.Println("❌ Server error:", err)
 	}
 }
