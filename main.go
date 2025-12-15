@@ -12,8 +12,14 @@ import (
 	resto "GoEatsapi/routes/Resto"
 	Admin "GoEatsapi/routes/admin"
 	DeliveryPartner "GoEatsapi/routes/delivery_partner"
+	"GoEatsapi/utils"
 
 	"github.com/joho/godotenv"
+)
+
+var (
+	appLog   *log.Logger
+	errorLog *log.Logger
 )
 
 func main() {
@@ -25,6 +31,10 @@ func main() {
 
 	db.Connect()
 	config.InitStripe()
+
+	utils.InitLogger()
+
+	utils.InfoLog.Println("Server started")
 
 	mux := http.NewServeMux()
 	// Admin

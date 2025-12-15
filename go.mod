@@ -22,6 +22,7 @@ require (
 require (
 	github.com/sendgrid/rest v2.6.9+incompatible // indirect
 	github.com/sendgrid/sendgrid-go v3.16.1+incompatible // indirect
+	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 )
 
 require (

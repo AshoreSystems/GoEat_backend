@@ -68,6 +68,7 @@ func GetPartnerOrder(w http.ResponseWriter, r *http.Request) {
 	LEFT JOIN customer_delivery_addresses cda ON cda.id = o.address_id
 	LEFT JOIN restaurants r ON r.id = o.restaurant_id
 	WHERE o.status IN (%s)
+		AND o.partner_id IS NULL
 	ORDER BY o.id DESC
 `, placeholders)
 
