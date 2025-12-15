@@ -520,13 +520,13 @@ func Get_partner_details(w http.ResponseWriter, r *http.Request) {
 	// -------------------------------
 	authHeader := r.Header.Get("Authorization")
 	if authHeader == "" {
-		JSON(w, 401, false, "Authorization header missing", nil)
+		utils.JSON(w, 401, false, "Authorization header missing", nil)
 		return
 	}
 
 	parts := strings.Split(authHeader, " ")
 	if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
-		JSON(w, 401, false, "Invalid token format", nil)
+		utils.JSON(w, 401, false, "Invalid token format", nil)
 		return
 	}
 
@@ -537,7 +537,7 @@ func Get_partner_details(w http.ResponseWriter, r *http.Request) {
 	// -------------------------------
 	loginID, email, err := utils.ParseToken(tokenString)
 	if err != nil {
-		JSON(w, 401, false, "Invalid or expired token", nil)
+		utils.JSON(w, 401, false, "Invalid or expired token", nil)
 		return
 	}
 
@@ -554,7 +554,7 @@ func Get_partner_details(w http.ResponseWriter, r *http.Request) {
     `, loginID).Scan(&emailVerified, &password)
 
 	if err != nil {
-		JSON(w, 500, false, "Failed to fetch login info", nil)
+		utils.JSON(w, 500, false, "Failed to fetch login info", nil)
 		return
 	}
 
@@ -581,7 +581,7 @@ func Get_partner_details(w http.ResponseWriter, r *http.Request) {
 	)
 
 	if err != nil && err != sql.ErrNoRows {
-		JSON(w, 500, false, "Failed to fetch partner info", nil)
+		utils.JSON(w, 500, false, "Failed to fetch partner info", nil)
 		return
 	}
 
@@ -605,7 +605,7 @@ func Get_partner_details(w http.ResponseWriter, r *http.Request) {
 	// -------------------------------
 	// 6. Final Response
 	// -------------------------------
-	JSON(w, 200, true, "Success", map[string]interface{}{
+	utils.JSON(w, 200, true, "Success", map[string]interface{}{
 		"email":             email,
 		"email_verified":    emailVerified,
 		"first_name":        firstName.String,
