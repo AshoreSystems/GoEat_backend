@@ -184,8 +184,21 @@ func RestoCheckDetails(w http.ResponseWriter, r *http.Request) {
 	var restaurant_lat string
 	var restaurant_long string
 
+	var restaurant_open_time string
+	var restaurant_close_time string
+	var cover_image string
+
 	err = db.DB.QueryRow(`
-        SELECT business_owner_name,restaurant_name,phone_number, business_address,latitude,longitude, status
+        SELECT business_owner_name,
+		restaurant_name,
+		phone_number, 
+		business_address,
+		latitude,
+		longitude,
+		COALESCE(open_time,''),
+		COALESCE(close_time,''), 
+		COALESCE(cover_image,''),
+		status
         FROM restaurants
         WHERE id = ?
     `, loginID).Scan(
@@ -195,11 +208,15 @@ func RestoCheckDetails(w http.ResponseWriter, r *http.Request) {
 		&restaurant_address,
 		&restaurant_lat,
 		&restaurant_long,
+		&restaurant_open_time,
+		&restaurant_close_time,
+		&cover_image,
 		&restaurantprofilereqStatus,
 	)
 
 	if err != nil && err != sql.ErrNoRows {
-		utils.JSON(w, 500, false, "Failed to fetch partner info", nil)
+		utils.ErrorLog.Println("error found", err)
+		utils.JSON(w, 500, false, "Failed to fetch resto info", nil)
 		return
 	}
 
@@ -211,6 +228,9 @@ func RestoCheckDetails(w http.ResponseWriter, r *http.Request) {
 		"restaurant_address":           restaurant_address,
 		"restaurant_lat":               restaurant_lat,
 		"restaurant_long":              restaurant_long,
+		"restaurant_open_time":         restaurant_open_time,
+		"restaurant_close_time":        restaurant_close_time,
+		"cover_image":                  cover_image,
 		"restaurant_profilereq_Status": restaurantprofilereqStatus,
 		// ✔ ADD NEW FLAGS
 
