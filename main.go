@@ -52,6 +52,10 @@ func main() {
 	mux.HandleFunc("/api/resto-orders/accept", resto.UpdateOrderStatus)
 	mux.HandleFunc("/api/resto-stripe/get-account-details", resto.GetStripe_Account_details_handler)
 	mux.HandleFunc("/api/resto-stripe/create-account", resto.CreateStripeRestaurantOnboarding)
+	mux.HandleFunc("/api/resto-Categories", resto.GetRestoCategories)
+	mux.HandleFunc("/api/add-menu-item", resto.AddMenuItem)
+	mux.HandleFunc("/api/update-menu-item", resto.UpdateMenuItem)
+	mux.HandleFunc("/api/resto-menu", resto.GetMenuByRestaurant)
 
 	//Customer
 	mux.HandleFunc("/signup-customer", routes.SingUp_Customer)
@@ -102,8 +106,8 @@ func main() {
 
 	// Start server
 	fmt.Println("🚀 Server running on http://localhost:8080")
-	//if err := http.ListenAndServe(":8080", handler); err != nil {
-	if err := http.ListenAndServe(":8013", handler); err != nil {
+	if err := http.ListenAndServe(":8080", handler); err != nil {
+		//if err := http.ListenAndServe(":8013", handler); err != nil {
 		fmt.Println("❌ Server error:", err)
 	}
 }

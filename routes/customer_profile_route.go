@@ -135,8 +135,49 @@ func AddCustomerAddress(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// ✅ CHECK IF SAME ADDRESS EXISTS
+	var existingID int
+	checkQuery := `
+		SELECT id 
+		FROM customer_delivery_addresses 
+		WHERE customer_id = ?
+		  AND address = ?
+		  AND city = ?
+		  AND postal_code = ?
+		LIMIT 1
+	`
+
+	err := db.DB.QueryRow(
+		checkQuery,
+		req.CustomerID,
+		req.AddressLine1,
+		req.City,
+		req.PostalCode,
+	).Scan(&existingID)
+
+	if err == nil {
+		// Address already exists
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		json.NewEncoder(w).Encode(AddressResponse{
+			Status:  false,
+			Message: "Address already exists",
+			Data:    []CustomerAddress{},
+		})
+		return
+	}
+
+	if err != sql.ErrNoRows {
+		http.Error(w, "DB error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// ✅ HANDLE DEFAULT ADDRESS
 	if req.IsDefault {
-		_, err := db.DB.Exec(`UPDATE customer_delivery_addresses SET is_default = FALSE WHERE customer_id = ?`, req.CustomerID)
+		_, err := db.DB.Exec(
+			`UPDATE customer_delivery_addresses SET is_default = FALSE WHERE customer_id = ?`,
+			req.CustomerID,
+		)
 		if err != nil {
 			http.Error(w, "Failed to update default flag: "+err.Error(), http.StatusInternalServerError)
 			return
@@ -149,7 +190,8 @@ func AddCustomerAddress(w http.ResponseWriter, r *http.Request) {
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
-	result, err := db.DB.Exec(query,
+	result, err := db.DB.Exec(
+		query,
 		req.CustomerID,
 		req.FullName,
 		req.PhoneNumber,
