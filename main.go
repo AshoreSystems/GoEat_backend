@@ -56,6 +56,9 @@ func main() {
 	mux.HandleFunc("/api/add-menu-item", resto.AddMenuItem)
 	mux.HandleFunc("/api/update-menu-item", resto.UpdateMenuItem)
 	mux.HandleFunc("/api/resto-menu", resto.GetMenuByRestaurant)
+	mux.HandleFunc("/api/resto-menu-disable", resto.DisableMenuItem)
+	mux.HandleFunc("/api/update-resto-address", resto.UpdateRestaurantAddress)
+	mux.HandleFunc("/api/update-resto-time", resto.UpdateRestaurantTime)
 
 	//Customer
 	mux.HandleFunc("/signup-customer", routes.SingUp_Customer)
