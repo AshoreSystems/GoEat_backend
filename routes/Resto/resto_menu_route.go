@@ -444,7 +444,7 @@ type RestaurantMenuResponse struct {
 func GetMenuByRestaurant(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	// 🔐 Authorization
+	//  Authorization
 	authHeader := r.Header.Get("Authorization")
 	if authHeader == "" {
 		utils.JSON(w, http.StatusUnauthorized, false, "Authorization header missing", nil)
@@ -507,4 +507,114 @@ func GetMenuByRestaurant(w http.ResponseWriter, r *http.Request) {
 	}
 
 	utils.JSON(w, http.StatusOK, true, "Menu fetched successfully", menu)
+}
+
+type DisableMenuItemRequest struct {
+	MenuItemID  uint64 `json:"menu_item_id"`
+	IsAvailable bool   `json:"is_available"`
+}
+
+func DisableMenuItem(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != http.MethodPut {
+		utils.JSON(w, http.StatusMethodNotAllowed, false, "Method not allowed", nil)
+		return
+	}
+
+	//  Authorization
+	authHeader := r.Header.Get("Authorization")
+	if authHeader == "" {
+		utils.JSON(w, http.StatusUnauthorized, false, "Authorization header missing", nil)
+		return
+	}
+
+	parts := strings.Split(authHeader, " ")
+	if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
+		utils.JSON(w, http.StatusUnauthorized, false, "Invalid token format", nil)
+		return
+	}
+
+	tokenString := parts[1]
+	loginID, _, err := utils.ParseToken(tokenString)
+	if err != nil || loginID == 0 {
+		utils.JSON(w, http.StatusUnauthorized, false, "Invalid or expired token", nil)
+		return
+	}
+
+	var req DisableMenuItemRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		utils.JSON(w, http.StatusBadRequest, false, "Invalid request payload", nil)
+		return
+	}
+
+	if req.MenuItemID == 0 {
+		utils.JSON(w, http.StatusBadRequest, false, "menu_item_id is required", nil)
+		return
+	}
+
+	//  Decide status
+	status := "inactive"
+	if req.IsAvailable {
+		status = "active"
+	}
+
+	tx, err := db.DB.Begin()
+	if err != nil {
+		utils.JSON(w, http.StatusInternalServerError, false, "Failed to start transaction", nil)
+		return
+	}
+	defer tx.Rollback()
+
+	// Update restaurant_menu_items
+	restResult, err := tx.Exec(`
+		UPDATE restaurant_menu_items
+		SET is_available = ?,
+		    status = ?
+		WHERE restaurant_id = ?
+		  AND menu_item_id = ?
+	`, req.IsAvailable, status, loginID, req.MenuItemID)
+
+	if err != nil {
+		utils.JSON(w, http.StatusInternalServerError, false, "Failed to update restaurant menu item", nil)
+		return
+	}
+
+	restRows, _ := restResult.RowsAffected()
+	if restRows == 0 {
+		utils.JSON(w, http.StatusNotFound, false, "Menu item not found for this restaurant", nil)
+		return
+	}
+
+	// Update menu_items (global)
+	menuResult, err := tx.Exec(`
+		UPDATE menu_items
+		SET is_available = ?,
+		    status = ?
+		WHERE id = ?
+	`, req.IsAvailable, status, req.MenuItemID)
+
+	if err != nil {
+		utils.JSON(w, http.StatusInternalServerError, false, "Failed to update menu item", nil)
+		return
+	}
+
+	menuRows, _ := menuResult.RowsAffected()
+	if menuRows == 0 {
+		utils.JSON(w, http.StatusNotFound, false, "Menu item not found", nil)
+		return
+	}
+
+	//  Commit
+	if err := tx.Commit(); err != nil {
+		utils.JSON(w, http.StatusInternalServerError, false, "Transaction commit failed", nil)
+		return
+	}
+
+	action := "disabled"
+	if req.IsAvailable {
+		action = "enabled"
+	}
+
+	utils.JSON(w, http.StatusOK, true, "Menu item "+action+" successfully", nil)
 }
