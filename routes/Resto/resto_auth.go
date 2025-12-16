@@ -130,9 +130,15 @@ func RestoRegister(w http.ResponseWriter, r *http.Request) {
 	// 📥 1. Insert user
 	// ---------------------------------------------
 	_, err = db.DB.Exec(`
-    INSERT INTO restaurants (restaurant_name,business_owner_name, email,phone_number, password,business_address,city,state,zipcode,latitude,longitude)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-`, restaurantName, name, email, phoneNumber, hashed, businessAddress, city, state, zipcode, latitude, longitude)
+    INSERT INTO restaurants 
+    (restaurant_name, business_owner_name, email, phone_number, password,
+     business_address, city, state, zipcode, latitude, longitude,
+     open_time, close_time)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '10:00:00', '23:00:00')
+`,
+		restaurantName, name, email, phoneNumber, hashed,
+		businessAddress, city, state, zipcode, latitude, longitude,
+	)
 
 	if err != nil {
 		utils.JSON(w, 500, false, "Failed to register", nil)
