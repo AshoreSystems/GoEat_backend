@@ -4,9 +4,11 @@ import (
 	"GoEatsapi/db"
 	"GoEatsapi/utils"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/stripe/stripe-go/v76"
 	"github.com/stripe/stripe-go/v76/account"
@@ -208,4 +210,170 @@ func GetStripe_Account_details_handler(w http.ResponseWriter, r *http.Request) {
 	// 5. Send Response
 	// -------------------------------
 	utils.JSON(w, 200, true, "Stripe account details fetched", resp)
+}
+
+type UpdateRestaurantAddressRequest struct {
+	BusinessAddress string  `json:"business_address"`
+	City            string  `json:"city"`
+	State           string  `json:"state"`
+	Zipcode         string  `json:"zipcode"`
+	Latitude        float64 `json:"latitude"`
+	Longitude       float64 `json:"longitude"`
+}
+
+func UpdateRestaurantAddress(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != http.MethodPut {
+		utils.JSON(w, http.StatusMethodNotAllowed, false, "Method not allowed", nil)
+		return
+	}
+
+	// Authorization
+	authHeader := r.Header.Get("Authorization")
+	if authHeader == "" {
+		utils.JSON(w, http.StatusUnauthorized, false, "Authorization header missing", nil)
+		return
+	}
+
+	parts := strings.Split(authHeader, " ")
+	if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
+		utils.JSON(w, http.StatusUnauthorized, false, "Invalid token format", nil)
+		return
+	}
+
+	tokenString := parts[1]
+	restaurantID, _, err := utils.ParseToken(tokenString)
+	if err != nil || restaurantID == 0 {
+		utils.JSON(w, http.StatusUnauthorized, false, "Invalid or expired token", nil)
+		return
+	}
+
+	var req UpdateRestaurantAddressRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		utils.JSON(w, http.StatusBadRequest, false, "Invalid request payload", nil)
+		return
+	}
+
+	// 🧪 Validation
+	if req.BusinessAddress == "" || req.City == "" || req.State == "" || req.Zipcode == "" {
+		utils.JSON(w, http.StatusBadRequest, false, "All address fields are required", nil)
+		return
+	}
+
+	result, err := db.DB.Exec(`
+		UPDATE restaurants
+		SET business_address = ?,
+		    city = ?,
+		    state = ?,
+		    zipcode = ?,
+		    latitude = ?,
+		    longitude = ?
+		WHERE id = ?
+	`,
+		req.BusinessAddress,
+		req.City,
+		req.State,
+		req.Zipcode,
+		req.Latitude,
+		req.Longitude,
+		restaurantID,
+	)
+
+	if err != nil {
+		utils.JSON(w, http.StatusInternalServerError, false, "Failed to update restaurant address", nil)
+		return
+	}
+
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		utils.JSON(w, http.StatusNotFound, false, "Restaurant not found", nil)
+		return
+	}
+
+	utils.JSON(w, http.StatusOK, true, "Restaurant address updated successfully", nil)
+}
+
+type UpdateRestaurantTimeRequest struct {
+	OpenTime  string `json:"open_time"`  // HH:mm
+	CloseTime string `json:"close_time"` // HH:mm
+}
+
+func UpdateRestaurantTime(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != http.MethodPut {
+		utils.JSON(w, http.StatusMethodNotAllowed, false, "Method not allowed", nil)
+		return
+	}
+
+	// 🔐 Authorization
+	authHeader := r.Header.Get("Authorization")
+	if authHeader == "" {
+		utils.JSON(w, http.StatusUnauthorized, false, "Authorization header missing", nil)
+		return
+	}
+
+	parts := strings.Split(authHeader, " ")
+	if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
+		utils.JSON(w, http.StatusUnauthorized, false, "Invalid token format", nil)
+		return
+	}
+
+	tokenString := parts[1]
+	restaurantID, _, err := utils.ParseToken(tokenString)
+	if err != nil || restaurantID == 0 {
+		utils.JSON(w, http.StatusUnauthorized, false, "Invalid or expired token", nil)
+		return
+	}
+
+	var req UpdateRestaurantTimeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		utils.JSON(w, http.StatusBadRequest, false, "Invalid request payload", nil)
+		return
+	}
+
+	// 🧪 Validate time format
+	openTime, err := time.Parse("15:04", req.OpenTime)
+	if err != nil {
+		utils.JSON(w, http.StatusBadRequest, false, "Invalid open_time format (HH:mm)", nil)
+		return
+	}
+
+	closeTime, err := time.Parse("15:04", req.CloseTime)
+	if err != nil {
+		utils.JSON(w, http.StatusBadRequest, false, "Invalid close_time format (HH:mm)", nil)
+		return
+	}
+
+	// ❌ Close time must be after open time
+	if !closeTime.After(openTime) {
+		utils.JSON(w, http.StatusBadRequest, false, "close_time must be after open_time", nil)
+		return
+	}
+
+	result, err := db.DB.Exec(`
+		UPDATE restaurants
+		SET open_time = ?,
+		    close_time = ?,
+		    is_open = 1
+		WHERE id = ?
+	`,
+		req.OpenTime,
+		req.CloseTime,
+		restaurantID,
+	)
+
+	if err != nil {
+		utils.JSON(w, http.StatusInternalServerError, false, "Failed to update restaurant time", nil)
+		return
+	}
+
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		utils.JSON(w, http.StatusNotFound, false, "Restaurant not found", nil)
+		return
+	}
+
+	utils.JSON(w, http.StatusOK, true, "Restaurant open and close time updated successfully", nil)
 }
