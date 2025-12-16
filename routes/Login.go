@@ -169,7 +169,6 @@ func RegisterHandler(w http.ResponseWriter, r *http.Request) {
 			`, loginID, email)
 
 			if err != nil {
-				utils.ErrorLog.Println("Failed to update partner record:", err)
 				JSON(w, 500, false, "Failed to update partner record", nil)
 				return
 			}
@@ -426,7 +425,8 @@ func GetEmailStatusHandler(w http.ResponseWriter, r *http.Request) {
 	)
 
 	if err != nil && err != sql.ErrNoRows {
-		fmt.Println(err)
+		utils.InfoLog.Println("Server started", err)
+		utils.ErrorLog.Println("Failed to fetch partner info:", err)
 		JSON(w, 500, false, "Failed to fetch partner info", nil)
 		return
 	}

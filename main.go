@@ -35,6 +35,7 @@ func main() {
 	utils.InitLogger()
 
 	utils.InfoLog.Println("Server started")
+	utils.ErrorLog.Println("error found")
 
 	mux := http.NewServeMux()
 	// Admin
@@ -102,8 +103,8 @@ func main() {
 
 	// Start server
 	fmt.Println("🚀 Server running on http://localhost:8080")
-	//if err := http.ListenAndServe(":8080", handler); err != nil {
-	if err := http.ListenAndServe(":8013", handler); err != nil {
+	if err := http.ListenAndServe(":8080", handler); err != nil {
+		// if err := http.ListenAndServe(":8013", handler); err != nil {
 		fmt.Println("❌ Server error:", err)
 	}
 }
