@@ -5,6 +5,7 @@ import (
 	"GoEatsapi/utils"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 )
@@ -133,6 +134,7 @@ func AddMenuItem(w http.ResponseWriter, r *http.Request) {
 
 	var req AddMenuItemRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		fmt.Println(req.ItemName)
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(APIResponse{
 			Status:  false,
