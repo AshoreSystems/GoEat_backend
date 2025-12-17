@@ -377,3 +377,82 @@ func UpdateRestaurantTime(w http.ResponseWriter, r *http.Request) {
 
 	utils.JSON(w, http.StatusOK, true, "Restaurant open and close time updated successfully", nil)
 }
+
+func UpdateRestaurant_cover_photo(w http.ResponseWriter, r *http.Request) {
+	// -------------------------------
+	// 1. Read Authorization Token
+	// -------------------------------
+	authHeader := r.Header.Get("Authorization")
+	if authHeader == "" {
+		utils.JSON(w, 401, false, "Authorization header missing", nil)
+		return
+	}
+
+	parts := strings.Split(authHeader, " ")
+	if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
+		utils.JSON(w, 401, false, "Invalid token format", nil)
+		return
+	}
+
+	tokenString := parts[1]
+	loginID, _, err := utils.ParseToken(tokenString)
+	if err != nil {
+		utils.JSON(w, 401, false, "Invalid or expired token", nil)
+		return
+	}
+
+	// -------------------------------
+	// 2. Parse Form
+	// -------------------------------
+	err = r.ParseMultipartForm(10 << 20)
+	if err != nil {
+		utils.JSON(w, 400, false, "Invalid form data", nil)
+		return
+	}
+
+	imageURL := r.FormValue("cover_image") // ❗ FIXED FIELD NAME
+
+	// -------------------------------
+	// 3. Validate
+	// -------------------------------
+	if imageURL == "" {
+		utils.JSON(w, 400, false, "Cover image URL is required", nil)
+		return
+	}
+
+	// -------------------------------
+	// 4. Update DB
+	// -------------------------------
+	result, err := db.DB.Exec(`
+		UPDATE restaurants
+		SET cover_image = ?
+		WHERE id = ?
+	`, imageURL, loginID)
+
+	if err != nil {
+		fmt.Println("DB Update Error:", err)
+		utils.JSON(w, 500, false, "Failed to update cover image", nil)
+		return
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		utils.JSON(w, 500, false, "Failed to check update result", nil)
+		return
+	}
+
+	// -------------------------------
+	// 5. Check rows affected
+	// -------------------------------
+	if rowsAffected == 0 {
+		utils.JSON(w, 404, false, "Restaurant not found or image unchanged", nil)
+		return
+	}
+
+	// -------------------------------
+	// 6. Success Response
+	// -------------------------------
+	utils.JSON(w, 200, true, "Cover image updated successfully", map[string]interface{}{
+		"cover_image": imageURL,
+	})
+}

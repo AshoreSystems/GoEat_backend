@@ -49,6 +49,7 @@ func main() {
 	mux.HandleFunc("/api/resto-signin", resto.RestoLogin)
 	mux.HandleFunc("/api/resto-signup", resto.RestoRegister)
 	mux.HandleFunc("/api/resto-RestoDetails", resto.RestoCheckDetails)
+	mux.HandleFunc("/api/Get_restaurant_Order_Graph", resto.Get_restaurant_Order_Graph)
 	mux.HandleFunc("/api/resto-orders", resto.GetRestoOrders)
 	mux.HandleFunc("/api/resto-orders/accept", resto.UpdateOrderStatus)
 	mux.HandleFunc("/api/resto-stripe/get-account-details", resto.GetStripe_Account_details_handler)
@@ -60,6 +61,7 @@ func main() {
 	mux.HandleFunc("/api/resto-menu-disable", resto.DisableMenuItem)
 	mux.HandleFunc("/api/update-resto-address", resto.UpdateRestaurantAddress)
 	mux.HandleFunc("/api/update-resto-time", resto.UpdateRestaurantTime)
+	mux.HandleFunc("/api/update-resto-cover-photo", resto.UpdateRestaurant_cover_photo)
 
 	//Customer
 	mux.HandleFunc("/signup-customer", routes.SingUp_Customer)
@@ -96,7 +98,9 @@ func main() {
 	mux.HandleFunc("/Get_user_email_status", routes.GetEmailStatusHandler)
 	mux.HandleFunc("/update_partner_details", DeliveryPartner.UpdateDeliveryPartnerHandler)
 	mux.HandleFunc("/api/partner/orders_by_status", DeliveryPartner.GetPartnerOrder)
+	mux.HandleFunc("/api/partner/orders_by_status-partner-accept", DeliveryPartner.Get_active_Partner_Order)
 	mux.HandleFunc("/api/partner/get-dashboard-graph", DeliveryPartner.GetOrderGraph)
+	mux.HandleFunc("/api/partner/accept-order", DeliveryPartner.Update_Order_Status)
 
 	//after login apis
 	mux.HandleFunc("/get_partner_details", DeliveryPartner.Get_partner_details)
