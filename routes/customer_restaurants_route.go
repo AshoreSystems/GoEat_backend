@@ -75,8 +75,11 @@ func GetAllCategories(w http.ResponseWriter, r *http.Request) {
 }
 
 type CategoryRequest struct {
-	CategoryID int    `json:"category_id"`
-	CustomerID uint64 `json:"customer_id"`
+	CategoryID int     `json:"category_id"`
+	CustomerID uint64  `json:"customer_id"`
+	Latitude   float64 `json:"latitude"`
+	Longitude  float64 `json:"longitude"`
+	RadiusKM   float64 `json:"radius_km"`
 }
 type MenuItem struct {
 	MenuItemID  int     `json:"menu_item_id"`
@@ -84,6 +87,7 @@ type MenuItem struct {
 	Description string  `json:"description"`
 	Price       float64 `json:"price"`
 	Image       string  `json:"image_url"`
+	IsVeg       bool    `json:"is_veg"`
 }
 
 type RestaurantData struct {
@@ -93,6 +97,7 @@ type RestaurantData struct {
 	CoverImages         string     `json:"cover_image"`
 	Rating              float64    `json:"rating"`
 	Wishlist            bool       `json:"wishlist"`
+	DistanceKM          float64    `json:"distance_km"`
 	Items               []MenuItem `json:"items"`
 }
 
@@ -117,22 +122,47 @@ func GetRestaurantsByCategory(w http.ResponseWriter, r *http.Request) {
 
 	query := `
 	SELECT 
-		r.id AS restaurant_id,
-		r.restaurant_name,
-		r.business_description,
-		r.cover_image,
-		r.rating,
-		mi.id AS menu_item_id,
-		mi.item_name,
-		mi.price
-	FROM restaurants r
-	JOIN restaurant_menu_items rmi ON r.id = rmi.restaurant_id
-	JOIN menu_items mi ON rmi.menu_item_id = mi.id
-	WHERE mi.category_id = ?
-	ORDER BY r.restaurant_name, mi.item_name;
-	`
+	r.id AS restaurant_id,
+	r.restaurant_name,
+	COALESCE(r.business_description, '') AS business_description,
+	COALESCE(r.cover_image, '') AS cover_image,
+	r.rating,
+	mi.id AS menu_item_id,
+	mi.item_name,
+	mi.price,
+	(
+		6371 * ACOS(
+			COS(RADIANS(?)) *
+			COS(RADIANS(r.latitude)) *
+			COS(RADIANS(r.longitude) - RADIANS(?)) +
+			SIN(RADIANS(?)) *
+			SIN(RADIANS(r.latitude))
+		)
+	) AS distance
+FROM restaurants r
+JOIN restaurant_menu_items rmi ON r.id = rmi.restaurant_id
+JOIN menu_items mi ON rmi.menu_item_id = mi.id
+WHERE 
+	mi.category_id = ?
+	AND r.status = 'approved'
+HAVING distance <= ?
+ORDER BY distance, r.restaurant_name, mi.item_name;`
 
-	rows, err := db.DB.Query(query, req.CategoryID)
+	//rows, err := db.DB.Query(query, req.CategoryID)
+
+	radius := req.RadiusKM
+	if radius == 0 {
+		radius = 10 // default 10 km
+	}
+
+	rows, err := db.DB.Query(
+		query,
+		req.Latitude,
+		req.Longitude,
+		req.Latitude,
+		req.CategoryID,
+		radius,
+	)
 	if err != nil {
 		http.Error(w, "DB query error: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -146,8 +176,8 @@ func GetRestaurantsByCategory(w http.ResponseWriter, r *http.Request) {
 		var rName, businessDesc, CoverImages string
 		var rating float64
 		var item MenuItem
-
-		err := rows.Scan(&rID, &rName, &businessDesc, &CoverImages, &rating, &item.MenuItemID, &item.Name, &item.Price)
+		var distance float64
+		err := rows.Scan(&rID, &rName, &businessDesc, &CoverImages, &rating, &item.MenuItemID, &item.Name, &item.Price, &distance)
 		if err != nil {
 			http.Error(w, "DB scan error: "+err.Error(), http.StatusInternalServerError)
 			return
@@ -160,9 +190,11 @@ func GetRestaurantsByCategory(w http.ResponseWriter, r *http.Request) {
 				BusinessDescription: businessDesc,
 				CoverImages:         CoverImages,
 				Rating:              rating,
-				Wishlist:            IsWishlist(req.CustomerID, rID), // ← NEW
+				Wishlist:            IsWishlist(req.CustomerID, rID),
+				DistanceKM:          distance,
 				Items:               []MenuItem{},
 			}
+
 		}
 
 		// Add menu items
@@ -199,15 +231,8 @@ func IsWishlist(customerID uint64, restaurantID int) bool {
 
 type MenuRequest struct {
 	RestaurantID int `json:"restaurant_id"`
+	CategoryID   int `json:"category_id"`
 }
-
-// type MenuItem struct {
-// 	MenuItemID  int     `json:"menu_item_id"`
-// 	Name        string  `json:"name"`
-// 	Description string  `json:"description"`
-// 	Price       float64 `json:"price"`
-// 	Image       string  `json:"image"`
-// }
 
 type CategoryMenu struct {
 	CategoryID   int        `json:"category_id"`
@@ -237,21 +262,32 @@ func GetRestaurantMenu(w http.ResponseWriter, r *http.Request) {
 
 	query := `
 	SELECT 
-		c.id AS category_id,
-		c.category_name,
-		mi.id AS menu_item_id,
-		mi.item_name,
-		mi.description,
-		mi.price,
-		mi.image_url
-	FROM categories c
-	JOIN menu_items mi ON mi.category_id = c.id
-	JOIN restaurant_menu_items rmi ON rmi.menu_item_id = mi.id
-	WHERE rmi.restaurant_id = ?
-	ORDER BY c.category_name, mi.item_name;
+	c.id AS category_id,
+	c.category_name,
+	mi.id AS menu_item_id,
+	mi.item_name,
+	mi.description,
+	mi.price,
+	mi.image_url,
+	mi.is_veg
+FROM categories c
+JOIN menu_items mi ON mi.category_id = c.id
+JOIN restaurant_menu_items rmi ON rmi.menu_item_id = mi.id
+WHERE 
+	rmi.restaurant_id = ?
+	AND mi.status = 'active'
+	AND (? = 0 OR c.id = ?)
+ORDER BY c.category_name, mi.item_name;
+
 	`
 
-	rows, err := db.DB.Query(query, req.RestaurantID)
+	//rows, err := db.DB.Query(query, req.RestaurantID)
+	rows, err := db.DB.Query(
+		query,
+		req.RestaurantID,
+		req.CategoryID,
+		req.CategoryID,
+	)
 	if err != nil {
 		http.Error(w, "DB query error: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -262,17 +298,23 @@ func GetRestaurantMenu(w http.ResponseWriter, r *http.Request) {
 
 	for rows.Next() {
 		var categoryID int
-		var categoryName, desc, image_url string
+		var categoryName string
 		var item MenuItem
 
-		err := rows.Scan(&categoryID, &categoryName, &item.MenuItemID, &item.Name, &desc, &item.Price, &image_url)
+		err := rows.Scan(
+			&categoryID,
+			&categoryName,
+			&item.MenuItemID,
+			&item.Name,
+			&item.Description,
+			&item.Price,
+			&item.Image,
+			&item.IsVeg,
+		)
 		if err != nil {
 			http.Error(w, "DB scan error: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
-
-		item.Description = desc
-		item.Image = image_url
 
 		if _, exists := categoryMap[categoryID]; !exists {
 			categoryMap[categoryID] = &CategoryMenu{
@@ -406,6 +448,7 @@ type RestaurentMenuItem struct {
 	Description    string  `json:"description"`
 	Price          float64 `json:"price"`
 	ImageURL       string  `json:"image_url"`
+	IsVeg          int     `json:"is_veg"`
 	Distance       float64 `json:"distance"`
 }
 
@@ -434,6 +477,7 @@ func GetNearbyRestaurantMenu(w http.ResponseWriter, r *http.Request) {
 		mi.description,
 		mi.price,
 		mi.image_url,
+		mi.is_veg,
 		r.distance
 	FROM (
 		SELECT 
@@ -449,7 +493,7 @@ func GetNearbyRestaurantMenu(w http.ResponseWriter, r *http.Request) {
 	JOIN restaurant_menu_items rmi ON rmi.restaurant_id = r.id
 	JOIN menu_items mi ON mi.id = rmi.menu_item_id
 	JOIN categories c ON c.id = mi.category_id
-	WHERE 1 = 1
+	WHERE mi.status = 'active'
 	`
 
 	// Add category filter condition dynamically
@@ -473,7 +517,7 @@ func GetNearbyRestaurantMenu(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var m RestaurentMenuItem
 		err := rows.Scan(&m.RestaurantID, &m.RestaurantName, &m.CategoryID, &m.CategoryName,
-			&m.MenuItemID, &m.ItemName, &m.Description, &m.Price, &m.ImageURL, &m.Distance)
+			&m.MenuItemID, &m.ItemName, &m.Description, &m.Price, &m.ImageURL, &m.IsVeg, &m.Distance)
 
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -495,6 +539,7 @@ func GetNearbyRestaurantMenu(w http.ResponseWriter, r *http.Request) {
 			"description":     item.Description,
 			"price":           item.Price,
 			"image_url":       item.ImageURL,
+			"is_veg":          item.IsVeg,
 			"distance":        item.Distance,
 		})
 	}
@@ -697,4 +742,127 @@ func GetWishlist(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
+}
+
+type RestaurantMenuRequest struct {
+	RestaurantID uint64 `json:"restaurant_id"`
+}
+type RestMenuItem struct {
+	MenuItemID      uint64  `json:"menu_item_id"`
+	ItemName        string  `json:"item_name"`
+	Description     string  `json:"description"`
+	CategoryID      uint64  `json:"category_id"`
+	CategoryName    string  `json:"category_name"`
+	Price           float64 `json:"price"`
+	IsVeg           int     `json:"is_veg"`
+	IsAvailable     int     `json:"is_available"`
+	PreparationTime *int    `json:"preparation_time"`
+	ImageURL        *string `json:"image_url"`
+}
+
+type Restaurant struct {
+	ID        uint64  `json:"id"`
+	Name      string  `json:"name"`
+	IsOpen    int     `json:"is_open"`
+	OpenTime  *string `json:"open_time"`
+	CloseTime *string `json:"close_time"`
+	Rating    float32 `json:"rating"`
+}
+
+type RestaurantMenuResponse struct {
+	Restaurant Restaurant     `json:"restaurant"`
+	Items      []RestMenuItem `json:"items"`
+}
+
+func GetAllRestaurantMenu(w http.ResponseWriter, r *http.Request) {
+
+	if r.Method != http.MethodPost {
+		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req RestaurantMenuRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.RestaurantID == 0 {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	rows, err := db.DB.Query(`
+		SELECT
+			r.id,
+			r.restaurant_name,
+			r.is_open,
+			r.open_time,
+			r.close_time,
+			r.rating,
+
+			c.id,
+			c.category_name,
+
+			mi.id,
+			mi.item_name,
+			mi.description,
+			COALESCE(rmi.price, mi.price),
+			mi.is_veg,
+			rmi.is_available,
+			COALESCE(rmi.preparation_time, mi.preparation_time),
+			mi.image_url
+		FROM restaurants r
+		JOIN restaurant_menu_items rmi ON r.id = rmi.restaurant_id
+		JOIN menu_items mi ON rmi.menu_item_id = mi.id
+		JOIN categories c ON mi.category_id = c.id
+		WHERE r.id = ?
+		  AND rmi.status = 'active'
+		  AND mi.status = 'active'
+		ORDER BY mi.item_name
+	`, req.RestaurantID)
+
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var response RestaurantMenuResponse
+	var restaurantSet bool
+
+	for rows.Next() {
+		var item RestMenuItem
+		var restaurant Restaurant
+
+		err := rows.Scan(
+			&restaurant.ID,
+			&restaurant.Name,
+			&restaurant.IsOpen,
+			&restaurant.OpenTime,
+			&restaurant.CloseTime,
+			&restaurant.Rating,
+
+			&item.CategoryID,
+			&item.CategoryName,
+
+			&item.MenuItemID,
+			&item.ItemName,
+			&item.Description,
+			&item.Price,
+			&item.IsVeg,
+			&item.IsAvailable,
+			&item.PreparationTime,
+			&item.ImageURL,
+		)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		if !restaurantSet {
+			response.Restaurant = restaurant
+			restaurantSet = true
+		}
+
+		response.Items = append(response.Items, item)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
 }
