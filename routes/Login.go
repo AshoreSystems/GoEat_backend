@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"GoEatsapi/db"
+	"GoEatsapi/mailer"
 	"GoEatsapi/utils"
 	"fmt"
 	"math/rand"
@@ -127,7 +128,19 @@ func RegisterHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	otp := GenerateOTP()
+	subject := "Your OTP Verification Code"
 
+	body := fmt.Sprintf(`
+			Hello,
+
+			Your One-Time Password (OTP) is:
+
+			👉 %s
+			Please do not share it with anyone.
+
+			Thanks,
+			Your App Team
+	`, otp)
 	// Send email in a goroutine (non-blocking)
 
 	//-----------------------------------
@@ -176,12 +189,12 @@ func RegisterHandler(w http.ResponseWriter, r *http.Request) {
 
 		// send OTP email
 
-		// err = mailer.SendOTPviaSMTP(sendgridKey, fromEmail, email, subject, body)
-		// if err != nil {
-		// 	fmt.Println("SMTP ERROR:", err)
-		// 	JSON(w, 500, false, "Failed to send OTP email", nil)
-		// 	return
-		// }
+		err = mailer.SendOTPviaSMTP(email, subject, body)
+		if err != nil {
+			fmt.Println("SMTP ERROR:", err)
+			JSON(w, 500, false, "Failed to send OTP email", nil)
+			return
+		}
 
 		JSON(w, 200, true, "OTP sent", map[string]string{"otp": otp})
 		return
@@ -229,6 +242,12 @@ func RegisterHandler(w http.ResponseWriter, r *http.Request) {
 	// 	JSON(w, 500, false, "Failed to send OTP email", nil)
 	// 	return
 	// }
+	err = mailer.SendOTPviaSMTP(email, subject, body)
+	if err != nil {
+		fmt.Println("SMTP ERROR:", err)
+		JSON(w, 500, false, "Failed to send OTP email", nil)
+		return
+	}
 
 	JSON(w, 200, true, "Registration successful. OTP sent.", map[string]string{"otp": otp})
 }

@@ -3,10 +3,16 @@ package mailer
 import (
 	"fmt"
 	"net/smtp"
+	"os"
 )
 
-func SendOTPviaSMTP(sendgridKey, fromEmail, toEmail, subject, body string) error {
+func SendOTPviaSMTP(toEmail, subject, body string) error {
 
+	sendgridKey := os.Getenv("SENDGRID_API_KEY")
+	fromEmail := os.Getenv("SENDGRID_FROM_EMAIL")
+	if sendgridKey == "" {
+		return fmt.Errorf("SENDGRID_API_KEY not set")
+	}
 	// SendGrid SMTP auth
 	auth := smtp.PlainAuth(
 		"",          // identity, keep empty
