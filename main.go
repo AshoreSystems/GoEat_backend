@@ -51,6 +51,7 @@ func main() {
 	mux.HandleFunc("/api/resto-RestoDetails", resto.RestoCheckDetails)
 	mux.HandleFunc("/api/Get_restaurant_Order_Graph", resto.Get_restaurant_Order_Graph)
 	mux.HandleFunc("/api/resto-orders", resto.GetRestoOrders)
+	mux.HandleFunc("/api/resto-orders-histroy", resto.Get_Histroy_Resto_Orders)
 	mux.HandleFunc("/api/resto-orders/accept", resto.UpdateOrderStatus)
 	mux.HandleFunc("/api/resto-stripe/get-account-details", resto.GetStripe_Account_details_handler)
 	mux.HandleFunc("/api/resto-stripe/create-account", resto.CreateStripeRestaurantOnboarding)
