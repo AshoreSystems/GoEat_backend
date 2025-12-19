@@ -4,6 +4,7 @@ import (
 	"GoEatsapi/db"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -11,8 +12,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/stripe/stripe-go"
-	"github.com/stripe/stripe-go/paymentintent"
+	"github.com/stripe/stripe-go/v76"
+	"github.com/stripe/stripe-go/v76/paymentintent"
+	"github.com/stripe/stripe-go/v76/refund"
 )
 
 type CreatePaymentIntentRequest struct {
@@ -129,17 +131,39 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Online','pending', NOW())
 		return
 	}
 	stripe.Key = os.Getenv("STRIPE_SK")
-	pi, err := paymentintent.Get(id, nil)
+
+	params := &stripe.PaymentIntentParams{}
+	params.AddExpand("latest_charge")
+
+	pi, err := paymentintent.Get(id, params)
 	if err != nil {
 		http.Error(w, "Stripe error: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
+	if pi.LatestCharge == nil || pi.LatestCharge.PaymentMethodDetails == nil ||
+		pi.LatestCharge.PaymentMethodDetails.Card == nil {
+		http.Error(w, "Card details not available", http.StatusBadRequest)
+		return
+	}
+
+	brand := pi.LatestCharge.PaymentMethodDetails.Card.Brand
+	last4 := pi.LatestCharge.PaymentMethodDetails.Card.Last4
+
 	_, err = tx.Exec(`
 INSERT INTO tbl_payment_transactions 
-(order_id, customer_id, transaction_reference, payment_mode, payment_gateway, amount, status,brand,last4,payment_intent,created_at) 
+(order_id, customer_id, transaction_reference, payment_mode, payment_gateway, amount, status, brand, last4, payment_intent, created_at) 
 VALUES (?, ?, ?, 'Card', 'stripe', ?, ?, ?, ?, ?, NOW())
-`, orderID, req.CustomerID, "", req.TotalAmount, "success", pi.Charges.Data[0].PaymentMethodDetails.Card.Brand, pi.Charges.Data[0].PaymentMethodDetails.Card.Last4, req.PaymentintentId)
+`,
+		orderID,
+		req.CustomerID,
+		"",
+		req.TotalAmount,
+		"success",
+		brand,
+		last4,
+		req.PaymentintentId,
+	)
 
 	if err != nil {
 		tx.Rollback()
@@ -541,7 +565,7 @@ func CancelCustomerOrder(w http.ResponseWriter, r *http.Request) {
 
 	// Parse JSON
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		w.WriteHeader(http.StatusBadRequest) // 400
+		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(CancleAPIResponse{
 			Status:    false,
 			Message:   "Invalid JSON format.",
@@ -551,32 +575,12 @@ func CancelCustomerOrder(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Validations
-	if req.OrderID == 0 {
+	if req.OrderID == 0 || req.CustomerID == 0 || req.CancelReason == "" {
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(CancleAPIResponse{
 			Status:    false,
-			Message:   "order_id is required.",
-			ErrorCode: "INVALID_ORDER_ID",
-		})
-		return
-	}
-
-	if req.CustomerID == 0 {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(CancleAPIResponse{
-			Status:    false,
-			Message:   "customer_id is required.",
-			ErrorCode: "INVALID_CUSTOMER_ID",
-		})
-		return
-	}
-
-	if req.CancelReason == "" {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(CancleAPIResponse{
-			Status:    false,
-			Message:   "cancel_reason is required.",
-			ErrorCode: "INVALID_REASON",
+			Message:   "Required fields missing.",
+			ErrorCode: "INVALID_INPUT",
 		})
 		return
 	}
@@ -586,13 +590,13 @@ func CancelCustomerOrder(w http.ResponseWriter, r *http.Request) {
 	var dbCustomerID uint64
 
 	err := db.DB.QueryRow(`
-		SELECT status, customer_id 
-		FROM tbl_orders 
+		SELECT status, customer_id
+		FROM tbl_orders
 		WHERE id = ?`, req.OrderID).
 		Scan(&status, &dbCustomerID)
 
 	if err == sql.ErrNoRows {
-		w.WriteHeader(http.StatusNotFound) // 404
+		w.WriteHeader(http.StatusNotFound)
 		json.NewEncoder(w).Encode(CancleAPIResponse{
 			Status:    false,
 			Message:   "Order not found.",
@@ -602,7 +606,7 @@ func CancelCustomerOrder(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError) // 500
+		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(CancleAPIResponse{
 			Status:    false,
 			Message:   "Database error.",
@@ -611,18 +615,18 @@ func CancelCustomerOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Wrong customer
+	// Customer authorization
 	if dbCustomerID != req.CustomerID {
-		w.WriteHeader(http.StatusUnauthorized) // 401
+		w.WriteHeader(http.StatusUnauthorized)
 		json.NewEncoder(w).Encode(CancleAPIResponse{
 			Status:    false,
-			Message:   "You are not authorized to cancel this order.",
+			Message:   "Unauthorized customer.",
 			ErrorCode: "UNAUTHORIZED_CUSTOMER",
 		})
 		return
 	}
 
-	// Allowed cancellation statuses
+	// Allowed statuses
 	allowed := map[string]bool{
 		"pending":   true,
 		"accepted":  true,
@@ -630,7 +634,7 @@ func CancelCustomerOrder(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !allowed[status] {
-		w.WriteHeader(http.StatusUnprocessableEntity) // 422
+		w.WriteHeader(http.StatusUnprocessableEntity)
 		json.NewEncoder(w).Encode(CancleAPIResponse{
 			Status:    false,
 			Message:   "Order cannot be cancelled at this stage.",
@@ -639,15 +643,96 @@ func CancelCustomerOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Cancel the order
-	_, updateErr := db.DB.Exec(`
-		UPDATE tbl_orders 
-		SET status = 'cancelled', cancel_reason = ?, updated_at = NOW()
-		WHERE id = ?`,
+	// 🔹 Fetch payment details
+	var paymentIntent, paymentStatus string
+
+	err = db.DB.QueryRow(`
+	SELECT payment_intent, status
+	FROM tbl_payment_transactions
+	WHERE order_id = ?`, req.OrderID).
+		Scan(&paymentIntent, &paymentStatus)
+
+	if err == sql.ErrNoRows {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(CancleAPIResponse{
+			Status:    false,
+			Message:   "Payment record not found.",
+			ErrorCode: "PAYMENT_NOT_FOUND",
+		})
+		return
+	}
+
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(CancleAPIResponse{
+			Status:    false,
+			Message:   "Payment lookup failed.",
+			ErrorCode: "PAYMENT_DB_ERROR",
+		})
+		return
+	}
+
+	tx, err := db.DB.Begin()
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	defer tx.Rollback()
+	// Refund
+	if paymentStatus == "success" && paymentIntent != "" {
+
+		refundID, err := RefundMinusFiveDollars(paymentIntent)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(CancleAPIResponse{
+				Status:    false,
+				Message:   "Refund failed.",
+				ErrorCode: "REFUND_FAILED",
+			})
+			return
+		}
+
+		// ✅ Update payment table
+		if err := UpdatePaymentRefund(tx, req.OrderID, refundID); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(CancleAPIResponse{
+				Status:    false,
+				Message:   "Refund update failed.",
+				ErrorCode: "REFUND_DB_FAILED",
+			})
+			return
+		}
+	}
+
+	// // 🔹 Cancel order
+	// _, err = db.DB.Exec(`
+	// 	UPDATE tbl_orders
+	// 	SET status = 'cancelled',
+	// 	    cancel_reason = ?,
+	// 	    updated_at = NOW()
+	// 	WHERE id = ?`,
+	// 	req.CancelReason, req.OrderID,
+	// )
+	_, err = tx.Exec(`
+	UPDATE tbl_orders
+	SET status = 'cancelled',
+	    cancel_reason = ?,
+	    updated_at = NOW()
+	WHERE id = ?`,
 		req.CancelReason, req.OrderID,
 	)
 
-	if updateErr != nil {
+	if err := tx.Commit(); err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(CancleAPIResponse{
+			Status:    false,
+			Message:   "Transaction commit failed.",
+			ErrorCode: "TX_COMMIT_FAILED",
+		})
+		return
+	}
+
+	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(CancleAPIResponse{
 			Status:    false,
@@ -657,17 +742,62 @@ func CancelCustomerOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// SUCCESS → ALWAYS 200
+	// ✅ Success
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(CancleAPIResponse{
 		Status:  true,
-		Message: "Order cancelled successfully.",
+		Message: "Order cancelled and refund processed successfully.",
 		Data: map[string]interface{}{
-			"order_id":      req.OrderID,
-			"status":        "cancelled",
-			"cancel_reason": req.CancelReason,
+			"order_id": req.OrderID,
+			"status":   "cancelled",
 		},
 	})
+}
+
+func RefundMinusFiveDollars(paymentIntentID string) (string, error) {
+
+	stripe.Key = os.Getenv("STRIPE_SK")
+
+	// Get PaymentIntent
+	params := &stripe.PaymentIntentParams{}
+	params.AddExpand("latest_charge")
+
+	pi, err := paymentintent.Get(paymentIntentID, params)
+	if err != nil {
+		return "", err
+	}
+
+	if pi.Status != stripe.PaymentIntentStatusSucceeded {
+		return "", errors.New("payment not successful")
+	}
+
+	refundAmount := pi.AmountReceived - 500 // $5
+
+	if refundAmount <= 0 {
+		return "", errors.New("invalid refund amount")
+	}
+
+	// ✅ Refund using PaymentIntent (BEST)
+	ref, err := refund.New(&stripe.RefundParams{
+		PaymentIntent: stripe.String(paymentIntentID),
+		Amount:        stripe.Int64(refundAmount),
+	})
+
+	if err != nil {
+		return "", err
+	}
+
+	return ref.ID, nil
+}
+
+func UpdatePaymentRefund(tx *sql.Tx, orderID uint64, refundID string) error {
+	_, err := tx.Exec(`
+		UPDATE tbl_payment_transactions
+		SET status = 'refunded',
+		    updated_at = NOW()
+		WHERE order_id = ?`, orderID,
+	)
+	return err
 }
 
 type CancleAPIResponse struct {

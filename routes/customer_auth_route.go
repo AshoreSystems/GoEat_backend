@@ -1,16 +1,18 @@
 package routes
 
 import (
+	"GoEatsapi/db"
+	"GoEatsapi/mailer"
+	crand "crypto/rand"
 	"encoding/json"
 	"fmt"
+	"math/big"
 	"math/rand"
 	"net/http"
 	"os"
 	"regexp"
 	"strings"
 	"time"
-
-	"GoEatsapi/db"
 
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/golang-jwt/jwt/v5"
@@ -168,8 +170,7 @@ func LoginCustomer(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var loginReq LoginRequest
-	err := json.NewDecoder(r.Body).Decode(&loginReq)
-	if err != nil {
+	if err := json.NewDecoder(r.Body).Decode(&loginReq); err != nil {
 		sendErrorResponse(w, "Invalid JSON format")
 		return
 	}
@@ -180,47 +181,84 @@ func LoginCustomer(w http.ResponseWriter, r *http.Request) {
 	var email string
 	var email_verified int
 
-	query := "SELECT id, email, password, email_verified FROM login WHERE email = ?"
-	err = db.DB.QueryRow(query, loginReq.Email).Scan(&userID, &email, &storedPassword, &email_verified)
+	query := `
+		SELECT id, email, password, email_verified
+		FROM login WHERE email = ?`
+
+	err := db.DB.QueryRow(query, loginReq.Email).
+		Scan(&userID, &email, &storedPassword, &email_verified)
 	if err != nil {
 		sendErrorResponse(w, "Invalid email or password")
 		return
 	}
 
 	// Compare password
-	err = bcrypt.CompareHashAndPassword([]byte(storedPassword), []byte(loginReq.Password))
-	if err != nil {
+	if err := bcrypt.CompareHashAndPassword(
+		[]byte(storedPassword),
+		[]byte(loginReq.Password),
+	); err != nil {
 		sendErrorResponse(w, "Invalid email or password")
 		return
 	}
-	// Generate OTP
-	otp := generateOTP()
 
-	// Update login table with OTP
-	_, err = db.DB.Exec("UPDATE login SET verification_code = ? WHERE id = ?", otp, userID)
+	_, err = db.DB.Exec(
+		"UPDATE login SET status = 'active' WHERE id = ?",
+		userID,
+	)
 	if err != nil {
-		sendErrorResponse(w, "Failed to update OTP: "+err.Error())
+		sendErrorResponse(w, "Failed to update login status")
 		return
 	}
 
-	// Generate JWT token
+	// 🔐 Send OTP only if email not verified
+	if email_verified == 0 {
+
+		otp := generateOTP()
+
+		_, err = db.DB.Exec(
+			"UPDATE login SET verification_code = ? WHERE id = ?",
+			otp, userID,
+		)
+		if err != nil {
+			sendErrorResponse(w, "Failed to update OTP")
+			return
+		}
+
+		subject := "Your Login OTP"
+		body := fmt.Sprintf(
+			"Dear User,\n\nYour OTP for login is: %s\n\nThis OTP is valid for 10 minutes.\n\nRegards,\nGoEats Team",
+			otp,
+		)
+
+		if err = mailer.SendOTPviaSMTP(email, subject, body); err != nil {
+			fmt.Println("SMTP ERROR:", err)
+			sendErrorResponse(w, "Failed to send OTP email")
+			return
+		}
+	}
+
+	// Generate JWT
 	token, err := GenerateJWT(email, userID)
 	if err != nil {
 		sendErrorResponse(w, "Failed to generate token")
 		return
 	}
 
-	// ------- FETCH CUSTOMER DETAILS -------
+	// Fetch customer details
 	var fullName, phone, countryCode, dob, profileImage, login_id string
 	var user_id int
-	customerQuery := `SELECT id, full_name, phone_number, country_code, dob, profile_image,login_id  FROM customer WHERE login_id = ?`
-	err = db.DB.QueryRow(customerQuery, userID).Scan(&user_id, &fullName, &phone, &countryCode, &dob, &profileImage, &login_id)
+
+	customerQuery := `
+		SELECT id, full_name, phone_number, country_code, dob, profile_image, login_id
+		FROM customer WHERE login_id = ?`
+
+	err = db.DB.QueryRow(customerQuery, userID).
+		Scan(&user_id, &fullName, &phone, &countryCode, &dob, &profileImage, &login_id)
 	if err != nil {
 		sendErrorResponse(w, "Customer details not found")
 		return
 	}
 
-	// Response payload
 	data := map[string]interface{}{
 		"user_id":       user_id,
 		"full_name":     fullName,
@@ -229,14 +267,15 @@ func LoginCustomer(w http.ResponseWriter, r *http.Request) {
 		"dob":           dob,
 		"profile_image": profileImage,
 	}
+
 	response := LoginResponse{
 		Status:        true,
 		Message:       "Login successful",
 		Token:         token,
-		Otp:           otp,
 		EmailVerified: email_verified,
 		Data:          data,
 	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
 }
@@ -358,39 +397,196 @@ func CustomerResendOTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req ResendOTPRequest
-	err := json.NewDecoder(r.Body).Decode(&req)
-	if err != nil {
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		sendErrorResponse(w, "Invalid JSON format")
 		return
 	}
 
-	// Check if user exists
+	// Fetch user
 	var userID int
 	var email string
+	var email_verified int
 
-	query := "SELECT id, email FROM login WHERE email = ?"
-	err = db.DB.QueryRow(query, req.Email).Scan(&userID, &email)
+	query := `
+		SELECT id, email, email_verified
+		FROM login WHERE email = ?`
+
+	err := db.DB.QueryRow(query, req.Email).
+		Scan(&userID, &email, &email_verified)
 	if err != nil {
 		sendErrorResponse(w, "Email not found")
+		return
+	}
+
+	// If already verified, do not resend OTP
+	if email_verified == 1 {
+		sendErrorResponse(w, "Email already verified")
 		return
 	}
 
 	// Generate new OTP
 	otp := generateOTP()
 
-	// Update login table with new OTP
-	_, err = db.DB.Exec("UPDATE login SET verification_code = ? WHERE id = ?", otp, userID)
+	// Update OTP in DB
+	_, err = db.DB.Exec(
+		"UPDATE login SET verification_code = ? WHERE id = ?",
+		otp, userID,
+	)
 	if err != nil {
-		sendErrorResponse(w, "Failed to update OTP: "+err.Error())
+		sendErrorResponse(w, "Failed to update OTP")
 		return
 	}
 
-	// Response format
+	// Send OTP email
+	subject := "Your Verification OTP"
+	body := fmt.Sprintf(
+		"Dear User,\n\nYour OTP is: %s\n\nThis OTP is valid for 10 minutes.\n\nRegards,\nGoEats Team",
+		otp,
+	)
+
+	err = mailer.SendOTPviaSMTP(email, subject, body)
+	if err != nil {
+		fmt.Println("SMTP ERROR:", err)
+		sendErrorResponse(w, "Failed to send OTP email")
+		return
+	}
+
+	// Success response
 	response := map[string]interface{}{
 		"status":  true,
-		"message": "OTP resent successfully",
-		// "email":   email,
-		"otp": otp, // remove later if sending via email/sms
+		"message": "OTP sent successfully to your email",
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+func generateRandomPassword(length int) (string, error) {
+	const (
+		upper   = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+		lower   = "abcdefghijklmnopqrstuvwxyz"
+		number  = "0123456789"
+		special = "!@#$%^&*"
+		all     = upper + lower + number + special
+	)
+
+	if length < 8 {
+		return "", fmt.Errorf("password length must be at least 8")
+	}
+
+	password := make([]byte, length)
+	sets := []string{upper, lower, number, special}
+
+	for i, set := range sets {
+		n, err := crand.Int(crand.Reader, big.NewInt(int64(len(set))))
+		if err != nil {
+			return "", err
+		}
+		password[i] = set[n.Int64()]
+	}
+
+	for i := len(sets); i < length; i++ {
+		n, err := crand.Int(crand.Reader, big.NewInt(int64(len(all))))
+		if err != nil {
+			return "", err
+		}
+		password[i] = all[n.Int64()]
+	}
+
+	for i := range password {
+		j, err := crand.Int(crand.Reader, big.NewInt(int64(len(password))))
+		if err != nil {
+			return "", err
+		}
+		password[i], password[j.Int64()] = password[j.Int64()], password[i]
+	}
+
+	return string(password), nil
+}
+
+func ForgotPassword(w http.ResponseWriter, r *http.Request) {
+
+	if r.Method != http.MethodPost {
+		sendErrorResponse(w, "Invalid request method")
+		return
+	}
+
+	var req struct {
+		Email string `json:"email"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Email == "" {
+		sendErrorResponse(w, "Invalid email")
+		return
+	}
+
+	// Check if email exists
+	var loginID int
+	var email string
+
+	err := db.DB.QueryRow(
+		"SELECT id, email FROM login WHERE email = ?",
+		req.Email,
+	).Scan(&loginID, &email)
+
+	if err != nil {
+		sendErrorResponse(w, "Email not registered")
+		return
+	}
+
+	// Generate random password
+	newPassword, err := generateRandomPassword(8)
+	if err != nil {
+		sendErrorResponse(w, "Failed to generate password")
+		return
+	}
+
+	// Hash password
+	hashedPassword, err := bcrypt.GenerateFromPassword(
+		[]byte(newPassword),
+		bcrypt.DefaultCost,
+	)
+	if err != nil {
+		sendErrorResponse(w, "Failed to encrypt password")
+		return
+	}
+
+	// Update login table
+	_, err = db.DB.Exec(
+		"UPDATE login SET password = ? WHERE id = ?",
+		string(hashedPassword), loginID,
+	)
+	if err != nil {
+		sendErrorResponse(w, "Failed to update login password")
+		return
+	}
+
+	// Update customer table
+	_, err = db.DB.Exec(
+		"UPDATE customer SET password = ? WHERE login_id = ?",
+		string(hashedPassword), loginID,
+	)
+	if err != nil {
+		sendErrorResponse(w, "Failed to update customer password")
+		return
+	}
+
+	// Send email with new password
+	subject := "Your New Password"
+	body := fmt.Sprintf(
+		"Dear User,\n\nYour new password is:\n\n%s\n\nPlease login and change your password immediately.\n\nRegards,\nGoEats Team",
+		newPassword,
+	)
+
+	if err = mailer.SendOTPviaSMTP(email, subject, body); err != nil {
+		sendErrorResponse(w, "Failed to send email")
+		return
+	}
+
+	// Success response
+	response := map[string]interface{}{
+		"status":  true,
+		"message": "New password sent to your registered email",
 	}
 
 	w.Header().Set("Content-Type", "application/json")

@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"time"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 type CustomerRequest struct {
@@ -647,5 +649,115 @@ func CreateContactUs(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(APIContactusResponse{
 		Status:  true,
 		Message: "Your message has been submitted successfully",
+	})
+}
+
+type ChangePasswordRequest struct {
+	CustomerID      int    `json:"customer_id"`
+	NewPassword     string `json:"new_password"`
+	ConfirmPassword string `json:"confirm_password"`
+}
+
+func HashPassword(password string) (string, error) {
+	hash, err := bcrypt.GenerateFromPassword(
+		[]byte(password),
+		bcrypt.DefaultCost,
+	)
+	return string(hash), err
+}
+func ChangePassword(w http.ResponseWriter, r *http.Request) {
+
+	if r.Method != http.MethodPost {
+		respondJSON(w, http.StatusMethodNotAllowed, false, "Invalid method")
+		return
+	}
+
+	var req ChangePasswordRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondJSON(w, http.StatusBadRequest, false, "Invalid request body")
+		return
+	}
+
+	// Validation
+	if req.NewPassword == "" || req.ConfirmPassword == "" {
+		respondJSON(w, http.StatusBadRequest, false, "Password is required")
+		return
+	}
+
+	if req.NewPassword != req.ConfirmPassword {
+		respondJSON(w, http.StatusBadRequest, false, "Passwords do not match")
+		return
+	}
+
+	if len(req.NewPassword) < 8 {
+		respondJSON(w, http.StatusBadRequest, false, "Password must be at least 6 characters")
+		return
+	}
+
+	// Hash password
+	hashedPassword, err := HashPassword(req.NewPassword)
+	if err != nil {
+		respondJSON(w, http.StatusInternalServerError, false, "Failed to encrypt password")
+		return
+	}
+
+	// Transaction
+	tx, err := db.DB.Begin()
+	if err != nil {
+		respondJSON(w, http.StatusInternalServerError, false, "Transaction failed")
+		return
+	}
+
+	// Get login_id
+	var loginID int
+	err = tx.QueryRow(
+		`SELECT login_id FROM customer WHERE id = ?`,
+		req.CustomerID,
+	).Scan(&loginID)
+
+	if err != nil {
+		tx.Rollback()
+		respondJSON(w, http.StatusNotFound, false, "Customer not found")
+		return
+	}
+
+	// Update customer
+	_, err = tx.Exec(
+		`UPDATE customer SET password = ?, updated_at = NOW() WHERE id = ?`,
+		hashedPassword, req.CustomerID,
+	)
+	if err != nil {
+		tx.Rollback()
+		respondJSON(w, http.StatusInternalServerError, false, "Failed to update customer password")
+		return
+	}
+
+	// Update login
+	_, err = tx.Exec(
+		`UPDATE login SET password = ?, updated_at = NOW() WHERE id = ?`,
+		hashedPassword, loginID,
+	)
+	if err != nil {
+		tx.Rollback()
+		respondJSON(w, http.StatusInternalServerError, false, "Failed to update login password")
+		return
+	}
+
+	// Commit
+	if err := tx.Commit(); err != nil {
+		respondJSON(w, http.StatusInternalServerError, false, "Commit failed")
+		return
+	}
+
+	// ✅ Success
+	respondJSON(w, http.StatusOK, true, "Password changed successfully")
+}
+
+func respondJSON(w http.ResponseWriter, statusCode int, status bool, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(statusCode)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"status":  status,
+		"message": message,
 	})
 }
