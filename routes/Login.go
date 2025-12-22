@@ -244,7 +244,7 @@ func RegisterHandler(w http.ResponseWriter, r *http.Request) {
 	// }
 	err = mailer.SendOTPviaSMTP(email, subject, body)
 	if err != nil {
-		fmt.Println("SMTP ERROR:", err)
+		utils.ErrorLog.Println("SMTP ERROR:", err)
 		JSON(w, 500, false, "Failed to send OTP email", nil)
 		return
 	}
