@@ -2,6 +2,7 @@ package routes
 
 import (
 	"GoEatsapi/db"
+	"GoEatsapi/mailer"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -173,6 +174,143 @@ VALUES (?, ?, ?, 'Card', 'stripe', ?, ?, ?, ?, ?, NOW())
 
 	tx.Exec("UPDATE tbl_orders SET payment_status='success', status='pending' WHERE id=?", orderID)
 	tx.Commit()
+
+	var customerEmail, restaurantName string
+
+	err = db.DB.QueryRow(`
+	SELECT c.email, r.restaurant_name
+	FROM customer c
+	JOIN restaurants r ON r.id = ?
+	WHERE c.id = ?`,
+		req.RestaurantID,
+		req.CustomerID,
+	).Scan(&customerEmail, &restaurantName)
+
+	if err != nil {
+		fmt.Println("EMAIL FETCH ERROR:", err)
+		// do NOT return — order already placed
+	}
+	subject := "Your GoEats Order Has Been Placed Successfully"
+
+	htmlBody := fmt.Sprintf(`
+<!DOCTYPE html>
+<html>
+<head>
+	<meta charset="UTF-8">
+	<title>Order Placed Successfully</title>
+</head>
+<body style="margin:0; padding:0; font-family: Arial, sans-serif; background-color:#f4f4f4;">
+	<table width="100%%" cellpadding="0" cellspacing="0" style="padding:20px;">
+		<tr>
+			<td align="center">
+
+				<table width="600" cellpadding="0" cellspacing="0"
+					style="background:#ffffff; border-radius:8px; overflow:hidden;">
+
+					<!-- HEADER -->
+					<tr>
+						<td style="background-color:#ff6b35; padding:20px; text-align:center;">
+							<img src="https://yourdomain.com/assets/logo.png"
+								alt="GoEats"
+								style="max-height:50px;">
+						</td>
+					</tr>
+
+					<!-- TITLE -->
+					<tr>
+						<td style="padding:20px; text-align:center;">
+							<h2 style="color:#2c3e50; margin:0;">🎉 Order Placed Successfully</h2>
+						</td>
+					</tr>
+
+					<!-- CONTENT -->
+					<tr>
+						<td style="padding:0 20px 20px; color:#555;">
+							Dear Customer,<br><br>
+							Thank you for ordering with <strong>GoEats</strong>! Your order has been placed successfully.
+						</td>
+					</tr>
+
+					<!-- ORDER DETAILS -->
+					<tr>
+						<td style="padding:0 20px;">
+							<h3 style="border-bottom:1px solid #eee; padding-bottom:5px; color:#2c3e50;">
+								Order Details
+							</h3>
+							<p style="color:#555;">
+								<strong>Order Number:</strong> %s<br>
+								<strong>Restaurant:</strong> %s<br>
+								<strong>Payment Method:</strong> Card (Stripe)
+							</p>
+						</td>
+					</tr>
+
+					<!-- ORDER SUMMARY -->
+					<tr>
+						<td style="padding:10px 20px 0;">
+							<h3 style="border-bottom:1px solid #eee; padding-bottom:5px; color:#2c3e50;">
+								Order Summary
+							</h3>
+							<table width="100%%" cellpadding="6" cellspacing="0">
+								<tr>
+									<td>Subtotal</td>
+									<td align="right">$%.2f</td>
+								</tr>
+								<tr>
+									<td>Tax</td>
+									<td align="right">$%.2f</td>
+								</tr>
+								<tr>
+									<td>Delivery Fee</td>
+									<td align="right">$%.2f</td>
+								</tr>
+								<tr>
+									<td style="border-top:1px solid #eee;"><strong>Total Paid</strong></td>
+									<td align="right" style="border-top:1px solid #eee; color:#27ae60;">
+										<strong>$%.2f</strong>
+									</td>
+								</tr>
+							</table>
+						</td>
+					</tr>
+
+					<!-- FOOTER TEXT -->
+					<tr>
+						<td style="padding:15px 20px; color:#555;">
+							Your food is now being prepared. You’ll receive updates as your order progresses.
+						</td>
+					</tr>
+
+					<!-- FOOTER -->
+					<tr>
+						<td style="background:#f9f9f9; padding:15px; text-align:center; font-size:12px; color:#999;">
+							Regards,<br>
+							<strong style="color:#ff6b35;">GoEats Team</strong>
+						</td>
+					</tr>
+
+				</table>
+
+			</td>
+		</tr>
+	</table>
+</body>
+</html>
+`,
+		orderNumber,
+		restaurantName,
+		req.Subtotal,
+		req.TaxAmount,
+		req.DeliveryFee,
+		req.TotalAmount,
+	)
+
+	if customerEmail != "" {
+		err = mailer.SendHTMLEmail(customerEmail, subject, htmlBody)
+		if err != nil {
+			fmt.Println("PLACE ORDER EMAIL ERROR:", err)
+		}
+	}
 
 	sendSuccessResponse(w, map[string]interface{}{
 		"message":        "Order placed successfully",
@@ -643,7 +781,7 @@ func CancelCustomerOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 🔹 Fetch payment details
+	// Fetch payment details
 	var paymentIntent, paymentStatus string
 
 	err = db.DB.QueryRow(`
@@ -703,16 +841,6 @@ func CancelCustomerOrder(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-
-	// // 🔹 Cancel order
-	// _, err = db.DB.Exec(`
-	// 	UPDATE tbl_orders
-	// 	SET status = 'cancelled',
-	// 	    cancel_reason = ?,
-	// 	    updated_at = NOW()
-	// 	WHERE id = ?`,
-	// 	req.CancelReason, req.OrderID,
-	// )
 	_, err = tx.Exec(`
 	UPDATE tbl_orders
 	SET status = 'cancelled',
@@ -742,7 +870,139 @@ func CancelCustomerOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// ✅ Success
+	var email, orderNumber string
+	var totalAmount float64
+
+	err = db.DB.QueryRow(`
+	SELECT c.email, o.order_number, o.total_amount
+	FROM tbl_orders o
+	JOIN customer c ON c.id = o.customer_id
+	WHERE o.id = ?`, req.OrderID).
+		Scan(&email, &orderNumber, &totalAmount)
+
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(CancleAPIResponse{
+			Status:    false,
+			Message:   "Failed to fetch customer details.",
+			ErrorCode: "CUSTOMER_FETCH_FAILED",
+		})
+		return
+	}
+
+	refundAmount := totalAmount
+	cancellationFee := 5.0
+
+	if refundAmount > cancellationFee {
+		refundAmount = refundAmount - cancellationFee
+	} else {
+		refundAmount = 0
+	}
+	subject := "Your Order Has Been Cancelled"
+
+	htmlBody := fmt.Sprintf(`
+<!DOCTYPE html>
+<html>
+<head>
+	<meta charset="UTF-8">
+	<title>Order Cancelled</title>
+</head>
+<body style="margin:0; padding:0; background-color:#f4f4f4; font-family: Arial, sans-serif;">
+	<table width="100%%" cellpadding="0" cellspacing="0" style="padding:20px;">
+		<tr>
+			<td align="center">
+
+				<table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff; border-radius:8px; overflow:hidden;">
+					
+					<!-- HEADER -->
+					<tr>
+						<td style="background-color:#ff6b35; padding:20px; text-align:center;">
+							<img src="https://yourdomain.com/assets/logo.png" alt="GoEats"
+								style="max-height:50px;">
+						</td>
+					</tr>
+
+					<!-- TITLE -->
+					<tr>
+						<td style="padding:20px; text-align:center;">
+							<h2 style="color:#e74c3c; margin:0;">❌ Order Cancelled</h2>
+						</td>
+					</tr>
+
+					<!-- CONTENT -->
+					<tr>
+						<td style="padding:0 20px 20px; color:#333;">
+							Dear Customer,<br><br>
+
+							Your order (<strong>Order Number: %s</strong>) has been successfully cancelled.
+						</td>
+					</tr>
+
+					<!-- CANCELLATION REASON -->
+					<tr>
+						<td style="padding:0 20px 20px;">
+							<strong>Cancellation Reason:</strong>
+							<p style="margin:6px 0; color:#555;">%s</p>
+						</td>
+					</tr>
+
+					<!-- REFUND -->
+					<tr>
+						<td style="padding:0 20px 20px;">
+							<strong>Refund Details:</strong>
+
+							<table width="100%%" cellpadding="8" cellspacing="0"
+								style="margin-top:8px; background:#fafafa; border-radius:4px;">
+								<tr>
+									<td>Refundable Amount</td>
+									<td align="right" style="color:#27ae60; font-weight:bold;">
+										$%.2f
+									</td>
+								</tr>
+							</table>
+
+							<p style="font-size:13px; color:#777; margin-top:10px;">
+								The refunded amount will be credited to your original payment method within
+								<strong>5–7 business days</strong>.
+							</p>
+						</td>
+					</tr>
+
+					<!-- SUPPORT -->
+					<tr>
+						<td style="padding:0 20px 20px; color:#555;">
+							If you have any questions, feel free to contact our support team.
+						</td>
+					</tr>
+
+					<!-- FOOTER -->
+					<tr>
+						<td style="background:#f9f9f9; padding:15px; text-align:center; font-size:12px; color:#999;">
+							Regards,<br>
+							<strong style="color:#ff6b35;">GoEats Team</strong>
+						</td>
+					</tr>
+
+				</table>
+
+			</td>
+		</tr>
+	</table>
+</body>
+</html>
+`,
+		orderNumber,
+		req.CancelReason,
+		refundAmount,
+	)
+
+	err = mailer.SendHTMLEmail(email, subject, htmlBody)
+	if err != nil {
+		// Log error only — do NOT fail API after successful cancellation
+		fmt.Println("CANCEL ORDER EMAIL ERROR:", err)
+	}
+
+	//  Success
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(CancleAPIResponse{
 		Status:  true,

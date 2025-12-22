@@ -749,7 +749,7 @@ type RestaurantMenuRequest struct {
 }
 type RestMenuItem struct {
 	MenuItemID      uint64  `json:"menu_item_id"`
-	ItemName        string  `json:"item_name"`
+	ItemName        string  `json:"name"`
 	Description     string  `json:"description"`
 	CategoryID      uint64  `json:"category_id"`
 	CategoryName    string  `json:"category_name"`
