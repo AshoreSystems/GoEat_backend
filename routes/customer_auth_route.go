@@ -225,12 +225,102 @@ func LoginCustomer(w http.ResponseWriter, r *http.Request) {
 		}
 
 		subject := "Your Login OTP"
-		body := fmt.Sprintf(
-			"Dear User,\n\nYour OTP for login is: %s\n\nThis OTP is valid for 10 minutes.\n\nRegards,\nGoEats Team",
+		htmlBody := fmt.Sprintf(`
+<!DOCTYPE html>
+<html>
+<head>
+	<meta charset="UTF-8">
+	<title>Your GoEats OTP</title>
+</head>
+<body style="margin:0; padding:0; font-family: Arial, sans-serif; background-color:#f4f4f4;">
+	<table width="100%%" cellpadding="0" cellspacing="0" style="padding:20px;">
+		<tr>
+			<td align="center">
+
+				<table width="600" cellpadding="0" cellspacing="0"
+					style="background:#ffffff; border-radius:8px; overflow:hidden;">
+
+					<!-- HEADER -->
+					<tr>
+						<td style="background-color:#ff6b35; padding:20px; text-align:center;">
+							<img src="https://yourdomain.com/assets/logo.png"
+								alt="GoEats"
+								style="max-height:50px;">
+						</td>
+					</tr>
+
+					<!-- TITLE -->
+					<tr>
+						<td style="padding:20px; text-align:center;">
+							<h2 style="color:#2c3e50; margin:0;">🔐 Login Verification</h2>
+						</td>
+					</tr>
+
+					<!-- CONTENT -->
+					<tr>
+						<td style="padding:0 20px 10px; color:#555;">
+							Dear User,
+						</td>
+					</tr>
+
+					<tr>
+						<td style="padding:0 20px 15px; color:#555;">
+							Your OTP for login is:
+						</td>
+					</tr>
+
+					<!-- OTP BOX -->
+					<tr>
+						<td align="center" style="padding:10px 20px;">
+							<div style="
+								display:inline-block;
+								background:#fef3ee;
+								border:1px dashed #ff6b35;
+								color:#ff6b35;
+								font-size:28px;
+								letter-spacing:6px;
+								font-weight:bold;
+								padding:12px 20px;
+								border-radius:6px;">
+								%s
+							</div>
+						</td>
+					</tr>
+
+					<!-- VALIDITY -->
+					<tr>
+						<td style="padding:15px 20px; color:#555; text-align:center;">
+							This OTP is valid for <strong>5 minutes</strong>.
+						</td>
+					</tr>
+
+					<!-- SECURITY NOTE -->
+					<tr>
+						<td style="padding:0 20px 20px; font-size:13px; color:#777;">
+							For your security, please do not share this OTP with anyone.
+						</td>
+					</tr>
+
+					<!-- FOOTER -->
+					<tr>
+						<td style="background:#f9f9f9; padding:15px; text-align:center; font-size:12px; color:#999;">
+							Regards,<br>
+							<strong style="color:#ff6b35;">GoEats Team</strong>
+						</td>
+					</tr>
+
+				</table>
+
+			</td>
+		</tr>
+	</table>
+</body>
+</html>
+`,
 			otp,
 		)
 
-		if err = mailer.SendOTPviaSMTP(email, subject, body); err != nil {
+		if err = mailer.SendHTMLEmail(email, subject, htmlBody); err != nil {
 			fmt.Println("SMTP ERROR:", err)
 			sendErrorResponse(w, "Failed to send OTP email")
 			return
@@ -365,15 +455,6 @@ func CustomerVerifyOTP(w http.ResponseWriter, r *http.Request) {
 		"dob":           dob,
 		"profile_image": profileImage,
 	}
-
-	// // Final response
-	// response := map[string]interface{}{
-	//     "status":  true,
-	//     "message": "OTP verified successfully",
-	//     "token":   token,
-	//     "email":   email,
-	//     "data":    data,
-	// }
 	response := LoginResponse{
 		Status:  true,
 		Message: "OTP verified successfully",
@@ -439,12 +520,102 @@ func CustomerResendOTP(w http.ResponseWriter, r *http.Request) {
 
 	// Send OTP email
 	subject := "Your Verification OTP"
-	body := fmt.Sprintf(
-		"Dear User,\n\nYour OTP is: %s\n\nThis OTP is valid for 10 minutes.\n\nRegards,\nGoEats Team",
+	htmlBody := fmt.Sprintf(`
+<!DOCTYPE html>
+<html>
+<head>
+	<meta charset="UTF-8">
+	<title>Your GoEats OTP</title>
+</head>
+<body style="margin:0; padding:0; font-family: Arial, sans-serif; background-color:#f4f4f4;">
+	<table width="100%%" cellpadding="0" cellspacing="0" style="padding:20px;">
+		<tr>
+			<td align="center">
+
+				<table width="600" cellpadding="0" cellspacing="0"
+					style="background:#ffffff; border-radius:8px; overflow:hidden;">
+
+					<!-- HEADER -->
+					<tr>
+						<td style="background-color:#ff6b35; padding:20px; text-align:center;">
+							<img src="https://yourdomain.com/assets/logo.png"
+								alt="GoEats"
+								style="max-height:50px;">
+						</td>
+					</tr>
+
+					<!-- TITLE -->
+					<tr>
+						<td style="padding:20px; text-align:center;">
+							<h2 style="color:#2c3e50; margin:0;">🔐 Login Verification</h2>
+						</td>
+					</tr>
+
+					<!-- CONTENT -->
+					<tr>
+						<td style="padding:0 20px 10px; color:#555;">
+							Dear User,
+						</td>
+					</tr>
+
+					<tr>
+						<td style="padding:0 20px 15px; color:#555;">
+							Your OTP for login is:
+						</td>
+					</tr>
+
+					<!-- OTP BOX -->
+					<tr>
+						<td align="center" style="padding:10px 20px;">
+							<div style="
+								display:inline-block;
+								background:#fef3ee;
+								border:1px dashed #ff6b35;
+								color:#ff6b35;
+								font-size:28px;
+								letter-spacing:6px;
+								font-weight:bold;
+								padding:12px 20px;
+								border-radius:6px;">
+								%s
+							</div>
+						</td>
+					</tr>
+
+					<!-- VALIDITY -->
+					<tr>
+						<td style="padding:15px 20px; color:#555; text-align:center;">
+							This OTP is valid for <strong>10 minutes</strong>.
+						</td>
+					</tr>
+
+					<!-- SECURITY NOTE -->
+					<tr>
+						<td style="padding:0 20px 20px; font-size:13px; color:#777;">
+							For your security, please do not share this OTP with anyone.
+						</td>
+					</tr>
+
+					<!-- FOOTER -->
+					<tr>
+						<td style="background:#f9f9f9; padding:15px; text-align:center; font-size:12px; color:#999;">
+							Regards,<br>
+							<strong style="color:#ff6b35;">GoEats Team</strong>
+						</td>
+					</tr>
+
+				</table>
+
+			</td>
+		</tr>
+	</table>
+</body>
+</html>
+`,
 		otp,
 	)
 
-	err = mailer.SendOTPviaSMTP(email, subject, body)
+	err = mailer.SendHTMLEmail(email, subject, htmlBody)
 	if err != nil {
 		fmt.Println("SMTP ERROR:", err)
 		sendErrorResponse(w, "Failed to send OTP email")
@@ -573,12 +744,102 @@ func ForgotPassword(w http.ResponseWriter, r *http.Request) {
 
 	// Send email with new password
 	subject := "Your New Password"
-	body := fmt.Sprintf(
-		"Dear User,\n\nYour new password is:\n\n%s\n\nPlease login and change your password immediately.\n\nRegards,\nGoEats Team",
+	htmlBody := fmt.Sprintf(`
+<!DOCTYPE html>
+<html>
+<head>
+	<meta charset="UTF-8">
+	<title>Your New GoEats Password</title>
+</head>
+<body style="margin:0; padding:0; font-family: Arial, sans-serif; background-color:#f4f4f4;">
+	<table width="100%%" cellpadding="0" cellspacing="0" style="padding:20px;">
+		<tr>
+			<td align="center">
+
+				<table width="600" cellpadding="0" cellspacing="0"
+					style="background:#ffffff; border-radius:8px; overflow:hidden;">
+
+					<!-- HEADER -->
+					<tr>
+						<td style="background-color:#ff6b35; padding:20px; text-align:center;">
+							<img src="https://yourdomain.com/assets/logo.png"
+								alt="GoEats"
+								style="max-height:50px;">
+						</td>
+					</tr>
+
+					<!-- TITLE -->
+					<tr>
+						<td style="padding:20px; text-align:center;">
+							<h2 style="color:#2c3e50; margin:0;">🔑 New Password Generated</h2>
+						</td>
+					</tr>
+
+					<!-- CONTENT -->
+					<tr>
+						<td style="padding:0 20px 10px; color:#555;">
+							Dear User,
+						</td>
+					</tr>
+
+					<tr>
+						<td style="padding:0 20px 15px; color:#555;">
+							Your new password is:
+						</td>
+					</tr>
+
+					<!-- PASSWORD BOX -->
+					<tr>
+						<td align="center" style="padding:10px 20px;">
+							<div style="
+								display:inline-block;
+								background:#fef3ee;
+								border:1px dashed #ff6b35;
+								color:#ff6b35;
+								font-size:18px;
+								letter-spacing:1px;
+								font-weight:bold;
+								padding:12px 20px;
+								border-radius:6px;">
+								%s
+							</div>
+						</td>
+					</tr>
+
+					<!-- WARNING -->
+					<tr>
+						<td style="padding:15px 20px; color:#555;">
+							Please login and <strong>change your password immediately</strong>.
+						</td>
+					</tr>
+
+					<!-- SECURITY NOTE -->
+					<tr>
+						<td style="padding:0 20px 20px; font-size:13px; color:#777;">
+							For your security, do not share this password with anyone.
+						</td>
+					</tr>
+
+					<!-- FOOTER -->
+					<tr>
+						<td style="background:#f9f9f9; padding:15px; text-align:center; font-size:12px; color:#999;">
+							Regards,<br>
+							<strong style="color:#ff6b35;">GoEats Team</strong>
+						</td>
+					</tr>
+
+				</table>
+
+			</td>
+		</tr>
+	</table>
+</body>
+</html>
+`,
 		newPassword,
 	)
 
-	if err = mailer.SendOTPviaSMTP(email, subject, body); err != nil {
+	if err = mailer.SendHTMLEmail(email, subject, htmlBody); err != nil {
 		sendErrorResponse(w, "Failed to send email")
 		return
 	}
