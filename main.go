@@ -7,9 +7,11 @@ import (
 
 	"GoEatsapi/config"
 	"GoEatsapi/db"
+	"GoEatsapi/firebase"
 	"GoEatsapi/middleware"
 	"GoEatsapi/routes"
 	resto "GoEatsapi/routes/Resto"
+	test "GoEatsapi/routes/Test"
 	Admin "GoEatsapi/routes/admin"
 	DeliveryPartner "GoEatsapi/routes/delivery_partner"
 	"GoEatsapi/utils"
@@ -33,11 +35,12 @@ func main() {
 	config.InitStripe()
 
 	utils.InitLogger()
-
-	utils.InfoLog.Println("Server started")
-	utils.ErrorLog.Println("error found")
-
+	firebase.InitFirebase() // IMPORTANT
 	mux := http.NewServeMux()
+
+	//firebase
+	mux.HandleFunc("/api/test/send-notification", test.TestSendNotification)
+
 	// Admin
 	mux.HandleFunc("/admin_login", Admin.AdimnLogin)
 	mux.HandleFunc("/admin_get_partners", Admin.Get_partners_list)
@@ -102,6 +105,10 @@ func main() {
 	mux.HandleFunc("/api/partner/orders_by_status-partner-accept", DeliveryPartner.Get_active_Partner_Order)
 	mux.HandleFunc("/api/partner/get-dashboard-graph", DeliveryPartner.GetOrderGraph)
 	mux.HandleFunc("/api/partner/accept-order", DeliveryPartner.Update_Order_Status)
+	mux.HandleFunc("/api/partner/order/generate-otp", DeliveryPartner.Generate_Order_Delivery_OTP)
+	mux.HandleFunc("/api/partner/order/verify-otp", DeliveryPartner.Verify_Order_Delivery_OTP)
+	mux.HandleFunc("/api/partner/order/order-histroy", DeliveryPartner.Get_Partner_Order_histroy)
+	mux.HandleFunc("/api/partner/order/stripe-express-login", DeliveryPartner.Stripe_Express_Login)
 
 	//after login apis
 	mux.HandleFunc("/get_partner_details", DeliveryPartner.Get_partner_details)

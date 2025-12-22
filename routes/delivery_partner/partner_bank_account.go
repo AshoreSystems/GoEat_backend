@@ -5,7 +5,6 @@ import (
 	"GoEatsapi/utils"
 	"database/sql"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"os"
 	"strings"
@@ -13,6 +12,7 @@ import (
 	"github.com/stripe/stripe-go/v76"
 	"github.com/stripe/stripe-go/v76/account"
 	"github.com/stripe/stripe-go/v76/accountlink"
+	"github.com/stripe/stripe-go/v76/loginlink"
 )
 
 func JSON(w http.ResponseWriter, status int, success bool, msg string, data interface{}) {
@@ -123,7 +123,7 @@ func CreateStripeAccount(w http.ResponseWriter, r *http.Request) {
 
 	_, err = db.DB.Exec(insertQuery, loginID, stripeAccountID)
 	if err != nil {
-		fmt.Println("Insert error:", err)
+
 		utils.JSON(w, 500, false, "Failed to save Stripe account ID", nil)
 		return
 	}
@@ -187,7 +187,7 @@ func CreateStripeOnboarding(w http.ResponseWriter, r *http.Request) {
 		`, loginID).Scan(&stripeAccountID)
 
 		if err != nil {
-			fmt.Println("Query error:", err)
+
 			if err == sql.ErrNoRows {
 				utils.JSON(w, 404, false, "Stripe account not found for this partner", nil)
 				return
@@ -441,7 +441,7 @@ func CreatePartnerBankAccountHandler(w http.ResponseWriter, r *http.Request) {
 	key := []byte(os.Getenv("ENCRYPTION_KEY"))
 	encryptedAcc, err := utils.Encrypt(account, key)
 	if err != nil {
-		fmt.Println("Encryption error:", err)
+
 		JSON(w, 500, false, "Failed to encrypt account number", nil)
 		return
 	}
@@ -485,7 +485,7 @@ func CreatePartnerBankAccountHandler(w http.ResponseWriter, r *http.Request) {
 		)
 
 		if err != nil {
-			fmt.Println("Update error:", err)
+
 			JSON(w, 500, false, "Failed to update bank details", nil)
 			return
 		}
@@ -521,7 +521,6 @@ func CreatePartnerBankAccountHandler(w http.ResponseWriter, r *http.Request) {
 	)
 
 	if err != nil {
-		fmt.Println("Insert error:", err)
 		JSON(w, 500, false, "Failed to save bank details", nil)
 		return
 	}
@@ -531,5 +530,71 @@ func CreatePartnerBankAccountHandler(w http.ResponseWriter, r *http.Request) {
 		"bank_name":    bankName,
 		"bank_logo":    bankLogoURL,
 		"account_type": accountType,
+	})
+}
+
+func CreateStripeLoginLink(stripeAccountID string) (string, error) {
+
+	params := &stripe.LoginLinkParams{
+		Account: stripe.String(stripeAccountID),
+	}
+
+	link, err := loginlink.New(params)
+	if err != nil {
+		return "", err
+	}
+
+	return link.URL, nil
+}
+
+func Stripe_Express_Login(w http.ResponseWriter, r *http.Request) {
+
+	// -------------------------------
+	// Auth (Bearer Token)
+	// -------------------------------
+	authHeader := r.Header.Get("Authorization")
+	if authHeader == "" {
+		utils.JSON(w, 401, false, "Authorization header missing", nil)
+		return
+	}
+
+	parts := strings.Split(authHeader, " ")
+	if len(parts) != 2 {
+		utils.JSON(w, 401, false, "Invalid token", nil)
+		return
+	}
+
+	partnerID, _, err := utils.ParseToken(parts[1])
+	if err != nil {
+		utils.JSON(w, 401, false, "Invalid or expired token", nil)
+		return
+	}
+
+	// -------------------------------
+	// Fetch stripe_account_id
+	// -------------------------------
+	var stripeAccountID string
+	err = db.DB.QueryRow(`
+		SELECT stripe_account_id
+		FROM tbl_partner_bank_accounts
+		WHERE partner_id = ?
+	`, partnerID).Scan(&stripeAccountID)
+
+	if err != nil || stripeAccountID == "" {
+		utils.JSON(w, 400, false, "Stripe account not connected", nil)
+		return
+	}
+
+	// -------------------------------
+	// Create login link
+	// -------------------------------
+	url, err := CreateStripeLoginLink(stripeAccountID)
+	if err != nil {
+		utils.JSON(w, 500, false, "Failed to create Stripe login link", nil)
+		return
+	}
+
+	utils.JSON(w, 200, true, "Stripe login link created", map[string]string{
+		"url": url,
 	})
 }
