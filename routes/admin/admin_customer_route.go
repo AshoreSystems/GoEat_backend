@@ -770,3 +770,126 @@ func GetRestaurantDetails(w http.ResponseWriter, r *http.Request) {
 
 	utils.JSON(w, 200, true, "Restaurant details fetched", restaurant)
 }
+
+func GetTrakingOrders(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		utils.JSON(w, 405, false, "Invalid request method", nil)
+		return
+	}
+
+	authHeader := r.Header.Get("Authorization")
+	if authHeader == "" {
+		utils.JSON(w, 401, false, "Authorization header missing", nil)
+		return
+	}
+
+	parts := strings.Split(authHeader, " ")
+	if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
+		utils.JSON(w, 401, false, "Invalid token format", nil)
+		return
+	}
+
+	rows, err := db.DB.Query(`
+	SELECT 
+		o.id,
+		o.order_number,
+		o.customer_id,
+		o.subtotal,
+		o.tax_amount,
+		o.delivery_fee,
+		o.tip_amount,
+		o.total_amount,
+		o.payment_method,
+		o.payment_status,
+		o.status,
+		o.order_placed_at,
+		COALESCE(r.restaurant_name,'') AS restaurant_name,
+		COALESCE(a.address,'') AS address,
+		COALESCE(a.city,'') AS city
+	FROM tbl_orders o
+	LEFT JOIN restaurants r ON r.id = o.restaurant_id
+	LEFT JOIN customer_delivery_addresses a ON a.id = o.address_id
+	WHERE o.status NOT IN ('delivered', 'cancelled')
+	ORDER BY o.id DESC
+`)
+
+	if err != nil {
+		fmt.Println("Failed to fetch delivered orders:", err)
+		utils.JSON(w, 500, false, "Failed to fetch orders", nil)
+		return
+	}
+	defer rows.Close()
+
+	type OrderItem struct {
+		ID    int     `json:"id"`
+		Title string  `json:"title"`
+		Qty   int     `json:"qty"`
+		Price float64 `json:"price"`
+		Image string  `json:"image_url"`
+	}
+
+	type Order struct {
+		ID            int     `json:"id"`
+		OrderNumber   string  `json:"order_number"`
+		CustomerID    int     `json:"customer_id"`
+		Subtotal      float64 `json:"subtotal"`
+		TaxAmount     float64 `json:"tax_amount"`
+		DeliveryFee   float64 `json:"delivery_fee"`
+		TipAmount     float64 `json:"tip_amount"`
+		TotalAmount   float64 `json:"total_amount"`
+		PaymentMethod string  `json:"payment_method"`
+		PaymentStatus string  `json:"payment_status"`
+		Status        string  `json:"status"`
+		OrderPlacedAt string  `json:"order_placed_at"`
+
+		RestaurantName  string `json:"restaurant_name"`
+		DeliveryAddress string `json:"delivery_address"`
+		City            string `json:"city"`
+
+		Items []OrderItem `json:"items"`
+	}
+
+	orders := []Order{}
+
+	for rows.Next() {
+		var o Order
+		if err := rows.Scan(
+			&o.ID,
+			&o.OrderNumber,
+			&o.CustomerID,
+			&o.Subtotal,
+			&o.TaxAmount,
+			&o.DeliveryFee,
+			&o.TipAmount,
+			&o.TotalAmount,
+			&o.PaymentMethod,
+			&o.PaymentStatus,
+			&o.Status,
+			&o.OrderPlacedAt,
+			&o.RestaurantName,
+			&o.DeliveryAddress,
+			&o.City,
+		); err != nil {
+			utils.JSON(w, 500, false, "Failed to scan order", nil)
+			return
+		}
+
+		itemRows, _ := db.DB.Query(`
+		SELECT id, COALESCE(title,''), qty, price, COALESCE(image_url,'')
+		FROM tbl_order_items
+		WHERE order_id = ?
+	`, o.ID)
+
+		for itemRows.Next() {
+			var item OrderItem
+			itemRows.Scan(&item.ID, &item.Title, &item.Qty, &item.Price, &item.Image)
+			o.Items = append(o.Items, item)
+		}
+		itemRows.Close()
+
+		orders = append(orders, o)
+	}
+
+	utils.JSON(w, 200, true, "Orders list", orders)
+
+}
