@@ -50,6 +50,7 @@ func main() {
 	mux.HandleFunc("/admin_get_customer_list", Admin.GetCustomerList)
 	mux.HandleFunc("/admin_get_customer_details", Admin.GetCustomerDetails)
 	mux.HandleFunc("/admin_get_customer_orders_delivered", Admin.GetDeliveredOrders)
+	mux.HandleFunc("/admin_get_restaurant_details", Admin.GetRestaurantDetails)
 	//resto
 	mux.HandleFunc("/api/resto-signin", resto.RestoLogin)
 	mux.HandleFunc("/api/resto-signup", resto.RestoRegister)
