@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"GoEatsapi/db"
 	"GoEatsapi/utils"
@@ -12,6 +13,157 @@ import (
 
 	"golang.org/x/crypto/bcrypt"
 )
+
+func Get_Admin_Dashboard_Graph(w http.ResponseWriter, r *http.Request) {
+
+	// ================= AUTH =================
+	authHeader := r.Header.Get("Authorization")
+	if authHeader == "" {
+		utils.JSON(w, 401, false, "Authorization header missing", nil)
+		return
+	}
+
+	parts := strings.Split(authHeader, " ")
+	if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
+		utils.JSON(w, 401, false, "Invalid token format", nil)
+		return
+	}
+
+	tokenString := parts[1]
+
+	// Only validate token (no role check)
+	_, _, err := utils.ParseToken(tokenString)
+	if err != nil {
+		utils.JSON(w, 401, false, "Invalid or expired token", nil)
+		return
+	}
+
+	// ================= COMMON =================
+	currentYear := time.Now().Year()
+	currentMonth := int(time.Now().Month())
+
+	months := []string{}
+	for m := 1; m <= currentMonth; m++ {
+		month := time.Date(currentYear, time.Month(m), 1, 0, 0, 0, 0, time.UTC).
+			Format("2006-01")
+		months = append(months, month)
+	}
+
+	// ================= ORDERS GRAPH =================
+	type OrderGraphRow struct {
+		Month       string  `json:"month"`
+		TotalOrders int     `json:"total_orders"`
+		TotalAmount float64 `json:"total_amount"`
+	}
+
+	orderQuery := `
+		SELECT 
+			DATE_FORMAT(created_at, '%Y-%m') AS month,
+			COUNT(*) AS total_orders,
+			COALESCE(SUM(subtotal), 0) AS total_amount
+		FROM tbl_orders
+		WHERE status = 'delivered'
+		  AND YEAR(created_at) = YEAR(CURDATE())
+		GROUP BY DATE_FORMAT(created_at, '%Y-%m')
+		ORDER BY month;
+	`
+
+	orderRows, err := db.DB.Query(orderQuery)
+	if err != nil {
+		utils.JSON(w, 500, false, "DB error", nil)
+		return
+	}
+	defer orderRows.Close()
+
+	orderData := make(map[string]OrderGraphRow)
+
+	for orderRows.Next() {
+		var g OrderGraphRow
+		if err := orderRows.Scan(&g.Month, &g.TotalOrders, &g.TotalAmount); err != nil {
+			utils.JSON(w, 500, false, "Scan error", nil)
+			return
+		}
+		orderData[g.Month] = g
+	}
+
+	ordersGraph := []OrderGraphRow{}
+	totalOrders := 0
+	totalAmount := 0.0
+
+	for _, m := range months {
+		if val, ok := orderData[m]; ok {
+			ordersGraph = append(ordersGraph, val)
+			totalOrders += val.TotalOrders
+			totalAmount += val.TotalAmount
+		} else {
+			ordersGraph = append(ordersGraph, OrderGraphRow{
+				Month:       m,
+				TotalOrders: 0,
+				TotalAmount: 0,
+			})
+		}
+	}
+
+	// ================= USERS REGISTRATION GRAPH =================
+	type UserGraphRow struct {
+		Month    string `json:"month"`
+		NewUsers int    `json:"new_users"`
+	}
+
+	userQuery := `
+		SELECT 
+			DATE_FORMAT(created_at, '%Y-%m') AS month,
+			COUNT(*) AS new_users
+		FROM customer
+		WHERE YEAR(created_at) = YEAR(CURDATE())
+		GROUP BY DATE_FORMAT(created_at, '%Y-%m')
+		ORDER BY month;
+	`
+
+	userRows, err := db.DB.Query(userQuery)
+	if err != nil {
+		utils.JSON(w, 500, false, "DB error", nil)
+		return
+	}
+	defer userRows.Close()
+
+	userData := make(map[string]int)
+
+	for userRows.Next() {
+		var month string
+		var count int
+		if err := userRows.Scan(&month, &count); err != nil {
+			utils.JSON(w, 500, false, "Scan error", nil)
+			return
+		}
+		userData[month] = count
+	}
+
+	usersGraph := []UserGraphRow{}
+	totalNewUsers := 0
+
+	for _, m := range months {
+		count := userData[m]
+		usersGraph = append(usersGraph, UserGraphRow{
+			Month:    m,
+			NewUsers: count,
+		})
+		totalNewUsers += count
+	}
+
+	// ================= RESPONSE =================
+	response := map[string]interface{}{
+		"orders_graph": ordersGraph,
+		"users_graph":  usersGraph,
+		"summary": map[string]interface{}{
+			"total_orders":   totalOrders,
+			"total_amount":   totalAmount,
+			"new_users_year": totalNewUsers,
+		},
+	}
+
+	utils.JSON(w, 200, true, "Success", response)
+}
 
 func AdimnLogin(w http.ResponseWriter, r *http.Request) {
 	// Only POST allowed

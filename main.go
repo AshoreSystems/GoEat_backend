@@ -43,6 +43,7 @@ func main() {
 
 	// Admin
 	mux.HandleFunc("/admin_login", Admin.AdimnLogin)
+	mux.HandleFunc("/admin/get-dashboard-data", Admin.Get_Admin_Dashboard_Graph)
 	mux.HandleFunc("/admin_get_partners", Admin.Get_partners_list)
 	mux.HandleFunc("/admin_partners_Details", Admin.GetPartnerDetails)
 	mux.HandleFunc("/admin_update_request_status_of_partner", Admin.Update_request_status_of_partner)
