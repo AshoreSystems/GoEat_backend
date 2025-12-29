@@ -1,6 +1,8 @@
 package Admin
 
 import (
+	"database/sql"
+	"encoding/json"
 	"net/http"
 
 	"GoEatsapi/db"
@@ -112,7 +114,7 @@ func Get_partners_list(w http.ResponseWriter, r *http.Request) {
 		Status    string `json:"status"`
 	}
 
-	var partners []Partner
+	partners := []Partner{}
 
 	for rows.Next() {
 		var p Partner
@@ -251,4 +253,116 @@ func Update_request_status_of_partner(w http.ResponseWriter, r *http.Request) {
 	}
 
 	utils.JSON(w, 200, true, "Request status updated", nil)
+}
+
+func GetPartnerDetails(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	// Method check
+	if r.Method != http.MethodPost {
+		utils.JSON(w, 405, false, "Invalid request method", nil)
+		return
+	}
+
+	// Auth check
+	authHeader := r.Header.Get("Authorization")
+	if authHeader == "" {
+		utils.JSON(w, 401, false, "Authorization header missing", nil)
+		return
+	}
+
+	parts := strings.Split(authHeader, " ")
+	if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
+		utils.JSON(w, 401, false, "Invalid token format", nil)
+		return
+	}
+
+	// Request body
+	var req struct {
+		PartnerID uint64 `json:"partner_id"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		utils.JSON(w, 400, false, "Invalid request body", nil)
+		return
+	}
+
+	if req.PartnerID == 0 {
+		utils.JSON(w, 400, false, "partner_id is required", nil)
+		return
+	}
+
+	// Response struct
+	type PartnerDetails struct {
+		ID                   uint64 `json:"id"`
+		FirstName            string `json:"first_name"`
+		LastName             string `json:"last_name"`
+		PrimaryMobile        string `json:"primary_mobile"`
+		Email                string `json:"email"`
+		Gender               string `json:"gender"`
+		City                 string `json:"city"`
+		FullAddress          string `json:"full_address"`
+		LanguagesKnown       string `json:"languages_known"`
+		Status               string `json:"status"`
+		ProfileCompleted     int    `json:"profile_completed"`
+		ProfilePhotoURL      string `json:"profile_photo_url"`
+		DrivingLicenseURL    string `json:"driving_license_url"`
+		DrivingLicenseNumber string `json:"driving_license_number"`
+		DrivingLicenseExpire string `json:"driving_license_expire"`
+		CreatedAt            string `json:"created_at"`
+	}
+
+	var partner PartnerDetails
+
+	query := `
+		SELECT 
+			id,
+			COALESCE(first_name,''),
+			COALESCE(last_name,''),
+			COALESCE(primary_mobile,''),
+			COALESCE(email,''),
+			COALESCE(gender,''),
+			COALESCE(city,''),
+			COALESCE(full_address,''),
+			COALESCE(languages_known,''),
+			status,
+			profile_completed,
+			COALESCE(profile_photo_url,''),
+			COALESCE(driving_license_url,''),
+			COALESCE(driving_license_number,''),
+			COALESCE(driving_license_expire,''),
+			created_at
+		FROM delivery_partners
+		WHERE id = ?
+	`
+
+	err := db.DB.QueryRow(query, req.PartnerID).Scan(
+		&partner.ID,
+		&partner.FirstName,
+		&partner.LastName,
+		&partner.PrimaryMobile,
+		&partner.Email,
+		&partner.Gender,
+		&partner.City,
+		&partner.FullAddress,
+		&partner.LanguagesKnown,
+		&partner.Status,
+		&partner.ProfileCompleted,
+		&partner.ProfilePhotoURL,
+		&partner.DrivingLicenseURL,
+		&partner.DrivingLicenseNumber,
+		&partner.DrivingLicenseExpire,
+		&partner.CreatedAt,
+	)
+
+	if err == sql.ErrNoRows {
+		utils.JSON(w, 404, false, "Partner not found", nil)
+		return
+	} else if err != nil {
+		fmt.Println("DB Error:", err)
+		utils.JSON(w, 500, false, "Failed to fetch partner details", nil)
+		return
+	}
+
+	utils.JSON(w, 200, true, "Partner details", partner)
 }
