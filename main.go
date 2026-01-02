@@ -45,6 +45,7 @@ func main() {
 	mux.HandleFunc("/admin_login", Admin.AdimnLogin)
 	mux.HandleFunc("/admin/get-dashboard-data", Admin.Get_Admin_Dashboard_Graph)
 	mux.HandleFunc("/admin_get_partners", Admin.Get_partners_list)
+	mux.HandleFunc("/admin_partners_Details", Admin.GetPartnerDetails)
 	mux.HandleFunc("/admin_update_request_status_of_partner", Admin.Update_request_status_of_partner)
 	mux.HandleFunc("/admin_get_restaurants", Admin.Get_restaurants_list)
 	mux.HandleFunc("/admin_update_request_status_of_restaurant", Admin.Update_request_status_of_restaurant)
@@ -53,6 +54,8 @@ func main() {
 	mux.HandleFunc("/admin_get_customer_orders_delivered", Admin.GetDeliveredOrders)
 	mux.HandleFunc("/admin_get_restaurant_details", Admin.GetRestaurantDetails)
 	mux.HandleFunc("/admin_get_traking_orders", Admin.GetTrakingOrders)
+	mux.HandleFunc("/admin_update_customer_status", Admin.UpdateCustomerStatus)
+	mux.HandleFunc("/admin_update_password", Admin.UpdateAdminPassword)
 	//resto
 	mux.HandleFunc("/api/resto-signin", resto.RestoLogin)
 	mux.HandleFunc("/api/resto-signup", resto.RestoRegister)

@@ -1,6 +1,8 @@
 package Admin
 
 import (
+	"database/sql"
+	"encoding/json"
 	"net/http"
 	"time"
 
@@ -9,6 +11,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/golang-jwt/jwt/v4"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -148,7 +151,110 @@ func Get_Admin_Dashboard_Graph(w http.ResponseWriter, r *http.Request) {
 		})
 		totalNewUsers += count
 	}
+	rows, err := db.DB.Query(`
+	SELECT 
+		o.id,
+		o.order_number,
+		o.customer_id,
+		c.full_name,
+		o.subtotal,
+		o.tax_amount,
+		o.delivery_fee,
+		o.tip_amount,
+		o.total_amount,
+		o.payment_method,
+		o.payment_status,
+		o.status,
+		o.order_placed_at,
+		r.restaurant_name,
+		a.address,
+		a.city
+	FROM tbl_orders o
+	JOIN customer c ON c.id = o.customer_id
+	JOIN restaurants r ON r.id = o.restaurant_id
+	JOIN customer_delivery_addresses a ON a.id = o.address_id
+	WHERE DATE(o.order_placed_at) = CURDATE()
+	ORDER BY o.id DESC
+`)
 
+	if err != nil {
+		fmt.Println("Failed to fetch delivered orders:", err)
+		utils.JSON(w, 500, false, "Failed to fetch orders", nil)
+		return
+	}
+	defer rows.Close()
+
+	type OrderItem struct {
+		ID    int     `json:"id"`
+		Title string  `json:"title"`
+		Qty   int     `json:"qty"`
+		Price float64 `json:"price"`
+		Image string  `json:"image_url"`
+	}
+
+	type Order struct {
+		ID            int     `json:"id"`
+		OrderNumber   string  `json:"order_number"`
+		CustomerID    int     `json:"customer_id"`
+		CustomerName  string  `json:"full_name"`
+		Subtotal      float64 `json:"subtotal"`
+		TaxAmount     float64 `json:"tax_amount"`
+		DeliveryFee   float64 `json:"delivery_fee"`
+		TipAmount     float64 `json:"tip_amount"`
+		TotalAmount   float64 `json:"total_amount"`
+		PaymentMethod string  `json:"payment_method"`
+		PaymentStatus string  `json:"payment_status"`
+		Status        string  `json:"status"`
+		OrderPlacedAt string  `json:"order_placed_at"`
+
+		RestaurantName  string `json:"restaurant_name"`
+		DeliveryAddress string `json:"delivery_address"`
+		City            string `json:"city"`
+
+		Items []OrderItem `json:"items"`
+	}
+
+	orders := []Order{}
+
+	for rows.Next() {
+		var o Order
+		if err := rows.Scan(
+			&o.ID,
+			&o.OrderNumber,
+			&o.CustomerID,
+			&o.CustomerName,
+			&o.Subtotal,
+			&o.TaxAmount,
+			&o.DeliveryFee,
+			&o.TipAmount,
+			&o.TotalAmount,
+			&o.PaymentMethod,
+			&o.PaymentStatus,
+			&o.Status,
+			&o.OrderPlacedAt,
+			&o.RestaurantName,
+			&o.DeliveryAddress,
+			&o.City,
+		); err != nil {
+			utils.JSON(w, 500, false, "Failed to scan order", nil)
+			return
+		}
+
+		itemRows, _ := db.DB.Query(`
+		SELECT id, COALESCE(title,''), qty, price, COALESCE(image_url,'')
+		FROM tbl_order_items
+		WHERE order_id = ?
+	`, o.ID)
+
+		for itemRows.Next() {
+			var item OrderItem
+			itemRows.Scan(&item.ID, &item.Title, &item.Qty, &item.Price, &item.Image)
+			o.Items = append(o.Items, item)
+		}
+		itemRows.Close()
+
+		orders = append(orders, o)
+	}
 	// ================= RESPONSE =================
 	response := map[string]interface{}{
 		"orders_graph": ordersGraph,
@@ -158,6 +264,7 @@ func Get_Admin_Dashboard_Graph(w http.ResponseWriter, r *http.Request) {
 			"total_amount":   totalAmount,
 			"new_users_year": totalNewUsers,
 		},
+		"orders": orders,
 	}
 
 	utils.JSON(w, 200, true, "Success", response)
@@ -264,7 +371,7 @@ func Get_partners_list(w http.ResponseWriter, r *http.Request) {
 		Status    string `json:"status"`
 	}
 
-	var partners []Partner
+	partners := []Partner{}
 
 	for rows.Next() {
 		var p Partner
@@ -403,4 +510,219 @@ func Update_request_status_of_partner(w http.ResponseWriter, r *http.Request) {
 	}
 
 	utils.JSON(w, 200, true, "Request status updated", nil)
+}
+
+func GetPartnerDetails(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	// Method check
+	if r.Method != http.MethodPost {
+		utils.JSON(w, 405, false, "Invalid request method", nil)
+		return
+	}
+
+	// Auth check
+	authHeader := r.Header.Get("Authorization")
+	if authHeader == "" {
+		utils.JSON(w, 401, false, "Authorization header missing", nil)
+		return
+	}
+
+	parts := strings.Split(authHeader, " ")
+	if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
+		utils.JSON(w, 401, false, "Invalid token format", nil)
+		return
+	}
+
+	// Request body
+	var req struct {
+		PartnerID uint64 `json:"partner_id"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		utils.JSON(w, 400, false, "Invalid request body", nil)
+		return
+	}
+
+	if req.PartnerID == 0 {
+		utils.JSON(w, 400, false, "partner_id is required", nil)
+		return
+	}
+
+	// Response struct
+	type PartnerDetails struct {
+		ID                   uint64 `json:"id"`
+		FirstName            string `json:"first_name"`
+		LastName             string `json:"last_name"`
+		PrimaryMobile        string `json:"primary_mobile"`
+		Email                string `json:"email"`
+		Gender               string `json:"gender"`
+		City                 string `json:"city"`
+		FullAddress          string `json:"full_address"`
+		LanguagesKnown       string `json:"languages_known"`
+		Status               string `json:"status"`
+		ProfileCompleted     int    `json:"profile_completed"`
+		ProfilePhotoURL      string `json:"profile_photo_url"`
+		DrivingLicenseURL    string `json:"driving_license_url"`
+		DrivingLicenseNumber string `json:"driving_license_number"`
+		DrivingLicenseExpire string `json:"driving_license_expire"`
+		CreatedAt            string `json:"created_at"`
+	}
+
+	var partner PartnerDetails
+
+	query := `
+		SELECT 
+			id,
+			COALESCE(first_name,''),
+			COALESCE(last_name,''),
+			COALESCE(primary_mobile,''),
+			COALESCE(email,''),
+			COALESCE(gender,''),
+			COALESCE(city,''),
+			COALESCE(full_address,''),
+			COALESCE(languages_known,''),
+			status,
+			profile_completed,
+			COALESCE(profile_photo_url,''),
+			COALESCE(driving_license_url,''),
+			COALESCE(driving_license_number,''),
+			COALESCE(driving_license_expire,''),
+			created_at
+		FROM delivery_partners
+		WHERE id = ?
+	`
+
+	err := db.DB.QueryRow(query, req.PartnerID).Scan(
+		&partner.ID,
+		&partner.FirstName,
+		&partner.LastName,
+		&partner.PrimaryMobile,
+		&partner.Email,
+		&partner.Gender,
+		&partner.City,
+		&partner.FullAddress,
+		&partner.LanguagesKnown,
+		&partner.Status,
+		&partner.ProfileCompleted,
+		&partner.ProfilePhotoURL,
+		&partner.DrivingLicenseURL,
+		&partner.DrivingLicenseNumber,
+		&partner.DrivingLicenseExpire,
+		&partner.CreatedAt,
+	)
+
+	if err == sql.ErrNoRows {
+		utils.JSON(w, 404, false, "Partner not found", nil)
+		return
+	} else if err != nil {
+		fmt.Println("DB Error:", err)
+		utils.JSON(w, 500, false, "Failed to fetch partner details", nil)
+		return
+	}
+
+	utils.JSON(w, 200, true, "Partner details", partner)
+}
+
+func UpdateAdminPassword(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != http.MethodPut {
+		utils.JSON(w, 405, false, "Invalid request method", nil)
+		return
+	}
+
+	// Authorization check
+	authHeader := r.Header.Get("Authorization")
+	if authHeader == "" {
+		utils.JSON(w, 401, false, "Authorization header missing", nil)
+		return
+	}
+
+	parts := strings.Split(authHeader, " ")
+	if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
+		utils.JSON(w, 401, false, "Invalid token format", nil)
+		return
+	}
+
+	tokenString := parts[1]
+
+	// Parse JWT token
+	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, jwt.NewValidationError("unexpected signing method", jwt.ValidationErrorSignatureInvalid)
+		}
+		return []byte("goeats-v01"), nil
+	})
+
+	if err != nil || !token.Valid {
+		utils.JSON(w, 401, false, "Invalid token", nil)
+		return
+	}
+
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok || claims["login_id"] == nil {
+		utils.JSON(w, 401, false, "Invalid token claims", nil)
+		return
+	}
+
+	loginID := int(claims["login_id"].(float64)) // JWT stores numbers as float64
+
+	// Request payload
+	type Request struct {
+		OldPassword string `json:"old_password"`
+		NewPassword string `json:"new_password"`
+	}
+
+	var req Request
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		utils.JSON(w, 400, false, "Invalid JSON payload", nil)
+		return
+	}
+
+	if req.OldPassword == "" || req.NewPassword == "" {
+		utils.JSON(w, 400, false, "old_password and new_password are required", nil)
+		return
+	}
+
+	// Fetch current hashed password from DB
+	var hashedPassword string
+	err = db.DB.QueryRow("SELECT password FROM login WHERE id = ?", loginID).Scan(&hashedPassword)
+	if err != nil {
+		utils.JSON(w, 404, false, "User not found", nil)
+		return
+	}
+
+	// Compare old password
+	if err := bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(req.OldPassword)); err != nil {
+		utils.JSON(w, 401, false, "Old password is incorrect", nil)
+		return
+	}
+
+	// Hash new password
+	newHashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
+	if err != nil {
+		utils.JSON(w, 500, false, "Failed to hash new password", nil)
+		return
+	}
+
+	// Update password in DB
+	result, err := db.DB.Exec(`
+		UPDATE login
+		SET password = ?, updated_at = ?
+		WHERE id = ?
+	`, string(newHashedPassword), time.Now(), loginID)
+
+	if err != nil {
+		utils.JSON(w, 500, false, "Database update failed", nil)
+		return
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		utils.JSON(w, 404, false, "User record not found", nil)
+		return
+	}
+
+	utils.JSON(w, 200, true, "Password updated successfully", nil)
 }

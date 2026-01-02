@@ -696,7 +696,7 @@ func GetWishlist(w http.ResponseWriter, r *http.Request) {
 		ID             uint64  `json:"id"`
 		RestaurantID   uint64  `json:"restaurant_id"`
 		RestaurantName string  `json:"restaurant_name"`
-		BusinessDesc   string  `json:"business_description"`
+		BusinessDesc   *string `json:"business_description"`
 		Rating         float64 `json:"rating"`
 		CoverImage     *string `json:"cover_image"`
 		Wishlist       bool    `json:"wishlist"`
