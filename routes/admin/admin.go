@@ -726,3 +726,129 @@ func UpdateAdminPassword(w http.ResponseWriter, r *http.Request) {
 
 	utils.JSON(w, 200, true, "Password updated successfully", nil)
 }
+
+func GetTransactions(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != http.MethodGet {
+		utils.JSON(w, 405, false, "Invalid request method", nil)
+		return
+	}
+
+	// 🔐 Authorization check
+	authHeader := r.Header.Get("Authorization")
+	if authHeader == "" {
+		utils.JSON(w, 401, false, "Authorization header missing", nil)
+		return
+	}
+
+	parts := strings.Split(authHeader, " ")
+	if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
+		utils.JSON(w, 401, false, "Invalid token format", nil)
+		return
+	}
+
+	tokenString := parts[1]
+
+	// Parse JWT
+	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, jwt.NewValidationError(
+				"unexpected signing method",
+				jwt.ValidationErrorSignatureInvalid,
+			)
+		}
+		return []byte("goeats-v01"), nil
+	})
+
+	if err != nil || !token.Valid {
+		utils.JSON(w, 401, false, "Invalid token", nil)
+		return
+	}
+
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok || claims["login_id"] == nil {
+		utils.JSON(w, 401, false, "Invalid token claims", nil)
+		return
+	}
+
+	// ✅ Admin authenticated (login_id available)
+	_ = int(claims["login_id"].(float64))
+
+	// 📊 Query transactions
+	rows, err := db.DB.Query(`
+		SELECT
+			t.id,
+			o.order_number,
+			t.transaction_reference,
+			t.payment_mode,
+			t.provider,
+			t.amount,
+			t.currency,
+			t.status AS transaction_status,
+			DATE_FORMAT(t.updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
+		FROM tbl_payment_transactions t
+		JOIN tbl_orders o ON o.id = t.order_id
+		ORDER BY t.created_at DESC
+	`)
+	if err != nil {
+		utils.JSON(w, 500, false, "Failed to fetch transactions", nil)
+		return
+	}
+	defer rows.Close()
+
+	type Transaction struct {
+		ID                   uint64  `json:"id"`
+		OrderNumber          string  `json:"order_number"`
+		TransactionReference string  `json:"transaction_reference"`
+		PaymentMode          string  `json:"payment_mode"`
+		Provider             string  `json:"provider"`
+		Amount               float64 `json:"amount"`
+		Currency             string  `json:"currency"`
+		TransactionStatus    string  `json:"transaction_status"`
+		PaidAt               *string `json:"updated_at"`
+	}
+
+	var transactions []Transaction
+	var totalIncome float64
+	var totalLoss float64
+
+	for rows.Next() {
+		var t Transaction
+
+		err := rows.Scan(
+			&t.ID,
+			&t.OrderNumber,
+			&t.TransactionReference,
+			&t.PaymentMode,
+			&t.Provider,
+			&t.Amount,
+			&t.Currency,
+			&t.TransactionStatus,
+			&t.PaidAt,
+		)
+		if err != nil {
+			continue
+		}
+
+		// 💰 Summary calculation
+		switch t.TransactionStatus {
+		case "success":
+			totalIncome += t.Amount
+		case "failed", "refunded":
+			totalLoss += t.Amount
+		}
+
+		transactions = append(transactions, t)
+	}
+
+	response := map[string]interface{}{
+		"summary": map[string]float64{
+			"total_income": totalIncome,
+			"total_loss":   totalLoss,
+		},
+		"transactions": transactions,
+	}
+
+	utils.JSON(w, 200, true, "Transactions fetched successfully", response)
+}
