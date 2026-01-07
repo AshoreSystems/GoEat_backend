@@ -115,6 +115,10 @@ LEFT JOIN restaurants r ON r.id = o.restaurant_id
 WHERE o.status IN (%s)
 	AND o.partner_id IS NULL
 
+	-- TODAY'S ORDERS ONLY
+	AND o.order_placed_at >= CONVERT_TZ(CURDATE(), 'UTC', '+05:30')
+    AND o.order_placed_at < CONVERT_TZ(CURDATE() + INTERVAL 1 DAY, 'UTC', '+05:30')
+
 	-- Customer radius
 	AND (
 		6371 * ACOS(
@@ -340,6 +344,11 @@ func Get_active_Partner_Order(w http.ResponseWriter, r *http.Request) {
     LEFT JOIN restaurants r ON r.id = o.restaurant_id
     WHERE o.status IN (%s)
         AND o.partner_id = ?
+
+		-- ✅ TODAY'S ORDERS ONLY
+        AND o.order_placed_at >= CONVERT_TZ(CURDATE(), 'UTC', '+05:30')
+    	AND o.order_placed_at < CONVERT_TZ(CURDATE() + INTERVAL 1 DAY, 'UTC', '+05:30')
+
     ORDER BY o.id DESC
 `, placeholders)
 	args := make([]interface{}, 0, len(statuses)+1)
