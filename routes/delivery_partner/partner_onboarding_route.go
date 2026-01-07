@@ -443,10 +443,10 @@ func UpdateDeliveryPartnerHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	step1Query := `
-		SELECT first_name, last_name, date_of_birth, primary_mobile, gender,COALESCE(profile_photo_url,''),COALESCE(driving_license_url,''),COALESCE(driving_license_number,''),COALESCE(driving_license_expire,'')
-		FROM delivery_partners
-		WHERE login_id = ?
-	`
+        SELECT first_name, last_name, date_of_birth, primary_mobile, gender,COALESCE(profile_photo_url,''),COALESCE(driving_license_url,''),COALESCE(driving_license_number,''),COALESCE(driving_license_expire,'')
+        FROM delivery_partners
+        WHERE login_id = ?
+    `
 	err = db.DB.QueryRow(step1Query, loginID).Scan(
 		&check.FName,
 		&check.LName,
