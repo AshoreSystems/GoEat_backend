@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/rand"
-	"time"
 
 	"net/http"
 
@@ -18,7 +17,7 @@ type APIResponse struct {
 }
 
 func GenerateOTP() string {
-	rand.Seed(time.Now().UnixNano())
+	rand.Seed(GetISTTime().UnixNano())
 	return fmt.Sprintf("%06d", rand.Intn(999999))
 }
 

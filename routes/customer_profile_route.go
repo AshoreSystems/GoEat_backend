@@ -2,6 +2,7 @@ package routes
 
 import (
 	"GoEatsapi/db"
+	"GoEatsapi/utils"
 	"database/sql"
 	"encoding/json"
 	"net/http"
@@ -723,8 +724,8 @@ func ChangePassword(w http.ResponseWriter, r *http.Request) {
 
 	// Update customer
 	_, err = tx.Exec(
-		`UPDATE customer SET password = ?, updated_at = NOW() WHERE id = ?`,
-		hashedPassword, req.CustomerID,
+		`UPDATE customer SET password = ?, updated_at = ? WHERE id = ?`,
+		hashedPassword, utils.GetISTTimeString(), req.CustomerID,
 	)
 	if err != nil {
 		tx.Rollback()
@@ -734,8 +735,8 @@ func ChangePassword(w http.ResponseWriter, r *http.Request) {
 
 	// Update login
 	_, err = tx.Exec(
-		`UPDATE login SET password = ?, updated_at = NOW() WHERE id = ?`,
-		hashedPassword, loginID,
+		`UPDATE login SET password = ?, updated_at = ? WHERE id = ?`,
+		hashedPassword, utils.GetISTTimeString(), loginID,
 	)
 	if err != nil {
 		tx.Rollback()

@@ -194,7 +194,7 @@ func saveFile(r *http.Request, fieldName string) (string, error) {
 	}
 
 	// Generate unique filename
-	filename := fmt.Sprintf("%d_%s", time.Now().UnixNano(), filepath.Base(handler.Filename))
+	filename := fmt.Sprintf("%d_%s", utils.GetISTTime().UnixNano(), filepath.Base(handler.Filename))
 	fullPath := filepath.Join(uploadDir, filename)
 
 	// Save file to disk
@@ -362,13 +362,14 @@ func UpdateDeliveryPartnerHandler(w http.ResponseWriter, r *http.Request) {
 	if len(dpFields) > 0 {
 		dpValues = append(dpValues, loginID)
 
-		updateDPQuery := `
-			UPDATE delivery_partners 
-			SET ` + strings.Join(dpFields, ", ") + `, updated_at = NOW()
-			WHERE login_id = ?
-		`
+		// updateDPQuery := `
+		// 	UPDATE delivery_partners
+		// 	SET ` + strings.Join(dpFields, ", ") + `, updated_at = ?
+		// 	WHERE login_id = ?
+		// `
 
-		_, err = db.DB.Exec(updateDPQuery, dpValues...)
+		dpValues = append(dpValues, utils.GetISTTimeString())
+		dpValues = append(dpValues, loginID)
 		if err != nil {
 			fmt.Println("Failed to update delivery partner: ", err)
 			JSON(w, 500, false, "Failed to update delivery partner", nil)
@@ -416,10 +417,12 @@ func UpdateDeliveryPartnerHandler(w http.ResponseWriter, r *http.Request) {
 
 		updateLoginQuery := `
 			UPDAte login 
-			SET ` + strings.Join(loginFields, ", ") + `, updated_at = NOW()
+			SET ` + strings.Join(loginFields, ", ") + `, updated_at = ?
 			WHERE id = ?
 		`
 
+		loginValues = append(loginValues, utils.GetISTTimeString())
+		loginValues = append(loginValues, loginID)
 		_, err = db.DB.Exec(updateLoginQuery, loginValues...)
 		if err != nil {
 			JSON(w, 500, false, "Failed to update login table", nil)
@@ -495,9 +498,9 @@ func UpdateDeliveryPartnerHandler(w http.ResponseWriter, r *http.Request) {
 	if allCompleted {
 		_, err = db.DB.Exec(`
 		UPDATE delivery_partners 
-		SET profile_completed = 1, updated_at = NOW()
+		SET profile_completed = 1, updated_at = ?
 		WHERE login_id = ?
-	`, loginID)
+	`, utils.GetISTTimeString(), loginID)
 
 		if err != nil {
 			fmt.Println("Failed to update profile_completed:", err)
