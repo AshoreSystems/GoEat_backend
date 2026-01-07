@@ -463,6 +463,7 @@ func UpdateDeliveryPartnerHandler(w http.ResponseWriter, r *http.Request) {
 	)
 
 	if err != nil {
+		utils.ErrorLog.Println("Order not found", err)
 		JSON(w, 500, false, "Failed to verify step 1", nil)
 		return
 	}

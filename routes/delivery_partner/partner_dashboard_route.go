@@ -37,7 +37,7 @@ func GetOrderGraph(w http.ResponseWriter, r *http.Request) {
     SELECT 
         DATE_FORMAT(created_at, '%Y-%m') AS month,
         COUNT(*) AS total_orders,
-        COALESCE(SUM(subtotal), 0) AS delivery_fee
+        COALESCE(SUM(delivery_fee), 0) AS delivery_fee
     FROM tbl_orders
     WHERE partner_id = ? and status="delivered"
       AND created_at >= DATE_SUB(CURDATE(), INTERVAL 3 MONTH)
