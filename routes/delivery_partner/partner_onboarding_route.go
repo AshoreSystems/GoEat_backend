@@ -443,7 +443,7 @@ func UpdateDeliveryPartnerHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	step1Query := `
-		SELECT first_name, last_name, date_of_birth, primary_mobile, gender,profile_photo_url,driving_license_url,driving_license_number,driving_license_expire
+		SELECT first_name, last_name, date_of_birth, primary_mobile, gender,COALESCE(profile_photo_url,''),COALESCE(driving_license_url,''),COALESCE(driving_license_number,''),COALESCE(driving_license_expire,'')
 		FROM delivery_partners
 		WHERE login_id = ?
 	`
@@ -460,6 +460,7 @@ func UpdateDeliveryPartnerHandler(w http.ResponseWriter, r *http.Request) {
 	)
 
 	if err != nil {
+		utils.ErrorLog.Println("Order not found", err)
 		JSON(w, 500, false, "Failed to verify step 1", nil)
 		return
 	}
