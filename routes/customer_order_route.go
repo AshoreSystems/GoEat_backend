@@ -372,7 +372,70 @@ func Create_payment_intent(w http.ResponseWriter, r *http.Request) {
 
 	err := r.ParseMultipartForm(10 << 20)
 	if err != nil {
-		http.Error(w, "Invalid form data", http.StatusBadRequest)
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "Invalid form data",
+		})
+		return
+	}
+
+	// -------- User ID --------
+	userID := r.FormValue("user_id")
+	if userID == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "user_id is required",
+		})
+		return
+	}
+
+	// -------- User Validation --------
+	var loginID int
+	err = db.DB.QueryRow("SELECT login_id FROM customer WHERE id = ?", userID).Scan(&loginID)
+	if err == sql.ErrNoRows {
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "Customer not found",
+		})
+		return
+	}
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "Database error",
+		})
+		return
+	}
+
+	var status string
+	err = db.DB.QueryRow("SELECT status FROM login WHERE id = ?", loginID).Scan(&status)
+	if err == sql.ErrNoRows {
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "Login record not found",
+		})
+		return
+	}
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "Database error",
+		})
+		return
+	}
+
+	if status != "active" {
+		w.WriteHeader(http.StatusForbidden)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "Account is inactive or blocked",
+		})
 		return
 	}
 
@@ -380,20 +443,32 @@ func Create_payment_intent(w http.ResponseWriter, r *http.Request) {
 	amountStr := r.FormValue("amount")
 	userAmount, err := strconv.ParseFloat(amountStr, 64)
 	if err != nil {
-		http.Error(w, "Invalid amount", http.StatusBadRequest)
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "Invalid amount",
+		})
 		return
 	}
 
 	stripeAmount := int64(userAmount * 100)
 	if stripeAmount <= 0 {
-		http.Error(w, "Amount must be greater than 0", http.StatusBadRequest)
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "Amount must be greater than 0",
+		})
 		return
 	}
 
 	// -------- Restaurant ID --------
 	restaurantID := r.FormValue("restaurant_id")
 	if restaurantID == "" {
-		http.Error(w, "restaurant_id is required", http.StatusBadRequest)
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "restaurant_id is required",
+		})
 		return
 	}
 
@@ -407,13 +482,15 @@ func Create_payment_intent(w http.ResponseWriter, r *http.Request) {
 	`
 	err = db.DB.QueryRow(query, restaurantID).Scan(&openTimeStr, &closeTimeStr)
 	if err != nil {
-		http.Error(w, "Restaurant not found", http.StatusNotFound)
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "Restaurant not found",
+		})
 		return
 	}
 
 	// -------- Time Validation --------
-	//now := utils.GetISTTime()
-
 	isOpen := utils.IsWithinBusinessHours(openTimeStr, closeTimeStr)
 	if !isOpen {
 		w.WriteHeader(http.StatusForbidden)
@@ -436,7 +513,11 @@ func Create_payment_intent(w http.ResponseWriter, r *http.Request) {
 
 	pi, err := paymentintent.New(params)
 	if err != nil {
-		http.Error(w, "Stripe error: "+err.Error(), http.StatusInternalServerError)
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "Stripe error: " + err.Error(),
+		})
 		return
 	}
 
