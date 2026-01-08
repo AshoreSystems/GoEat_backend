@@ -40,12 +40,13 @@ func Get_Admin_Dashboard_Graph(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// ================= COMMON =================
-	currentYear := time.Now().Year()
-	currentMonth := int(time.Now().Month())
+	currentTime := utils.GetISTTime()
+	currentYear := currentTime.Year()
+	currentMonth := int(currentTime.Month())
 
 	months := []string{}
 	for m := 1; m <= currentMonth; m++ {
-		month := time.Date(currentYear, time.Month(m), 1, 0, 0, 0, 0, time.UTC).
+		month := time.Date(currentYear, time.Month(m), 1, 0, 0, 0, 0, utils.ISTLocation).
 			Format("2006-01")
 		months = append(months, month)
 	}
@@ -710,7 +711,7 @@ func UpdateAdminPassword(w http.ResponseWriter, r *http.Request) {
 		UPDATE login
 		SET password = ?, updated_at = ?
 		WHERE id = ?
-	`, string(newHashedPassword), time.Now(), loginID)
+	`, string(newHashedPassword), utils.GetISTTimeString(), loginID)
 
 	if err != nil {
 		utils.JSON(w, 500, false, "Database update failed", nil)
