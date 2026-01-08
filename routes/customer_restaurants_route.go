@@ -122,29 +122,33 @@ func GetRestaurantsByCategory(w http.ResponseWriter, r *http.Request) {
 
 	query := `
 	SELECT 
-	r.id AS restaurant_id,
-	r.restaurant_name,
-	COALESCE(r.business_description, '') AS business_description,
-	COALESCE(r.cover_image, '') AS cover_image,
-	r.rating,
-	mi.id AS menu_item_id,
-	mi.item_name,
-	mi.price,
-	(
-		6371 * ACOS(
-			COS(RADIANS(?)) *
-			COS(RADIANS(r.latitude)) *
-			COS(RADIANS(r.longitude) - RADIANS(?)) +
-			SIN(RADIANS(?)) *
-			SIN(RADIANS(r.latitude))
-		)
-	) AS distance
+    r.id AS restaurant_id,
+    r.restaurant_name,
+    COALESCE(r.business_description, '') AS business_description,
+    COALESCE(r.cover_image, '') AS cover_image,
+    COALESCE(ROUND(AVG(rr.rating), 1), 0) AS rating,
+    mi.id AS menu_item_id,
+    mi.item_name,
+    mi.price,
+    (
+        6371 * ACOS(
+            COS(RADIANS(?)) *
+            COS(RADIANS(r.latitude)) *
+            COS(RADIANS(r.longitude) - RADIANS(?)) +
+            SIN(RADIANS(?)) *
+            SIN(RADIANS(r.latitude))
+        )
+    ) AS distance
 FROM restaurants r
 JOIN restaurant_menu_items rmi ON r.id = rmi.restaurant_id
 JOIN menu_items mi ON rmi.menu_item_id = mi.id
+LEFT JOIN tbl_ratings_reviews rr 
+    ON r.id = rr.restaurant_id
 WHERE 
-	mi.category_id = ?
-	AND r.status = 'approved'
+    mi.category_id = ?
+    AND r.status = 'approved'
+GROUP BY 
+    r.id, mi.id
 HAVING distance <= ?
 ORDER BY distance, r.restaurant_name, mi.item_name;`
 
@@ -675,15 +679,19 @@ func GetWishlist(w http.ResponseWriter, r *http.Request) {
 	}
 
 	query := `
-        SELECT 
-            r.id,
-            r.restaurant_name,
-            r.business_description,
-            r.rating,
-            r.cover_image
-        FROM tbl_customer_wishlist w
-        JOIN restaurants r ON w.restaurant_id = r.id
-        WHERE w.customer_id = ?
+      SELECT 
+    r.id,
+    r.restaurant_name,
+    r.business_description,
+    COALESCE(ROUND(AVG(rr.rating), 1), 0) AS rating,
+    r.cover_image
+FROM tbl_customer_wishlist w
+JOIN restaurants r 
+    ON w.restaurant_id = r.id
+LEFT JOIN tbl_ratings_reviews rr 
+    ON r.id = rr.restaurant_id
+WHERE w.customer_id = ?
+GROUP BY r.id;
     `
 
 	rows, err := db.DB.Query(query, req.CustomerID)

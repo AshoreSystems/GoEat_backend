@@ -40,12 +40,13 @@ func Get_Admin_Dashboard_Graph(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// ================= COMMON =================
-	currentYear := time.Now().Year()
-	currentMonth := int(time.Now().Month())
+	currentTime := utils.GetISTTime()
+	currentYear := currentTime.Year()
+	currentMonth := int(currentTime.Month())
 
 	months := []string{}
 	for m := 1; m <= currentMonth; m++ {
-		month := time.Date(currentYear, time.Month(m), 1, 0, 0, 0, 0, time.UTC).
+		month := time.Date(currentYear, time.Month(m), 1, 0, 0, 0, 0, utils.ISTLocation).
 			Format("2006-01")
 		months = append(months, month)
 	}
@@ -68,7 +69,6 @@ func Get_Admin_Dashboard_Graph(w http.ResponseWriter, r *http.Request) {
 		GROUP BY DATE_FORMAT(created_at, '%Y-%m')
 		ORDER BY month;
 	`
-
 	orderRows, err := db.DB.Query(orderQuery)
 	if err != nil {
 		utils.JSON(w, 500, false, "DB error", nil)
@@ -711,7 +711,7 @@ func UpdateAdminPassword(w http.ResponseWriter, r *http.Request) {
 		UPDATE login
 		SET password = ?, updated_at = ?
 		WHERE id = ?
-	`, string(newHashedPassword), time.Now(), loginID)
+	`, string(newHashedPassword), utils.GetISTTimeString(), loginID)
 
 	if err != nil {
 		utils.JSON(w, 500, false, "Database update failed", nil)
@@ -835,20 +835,149 @@ func GetTransactions(w http.ResponseWriter, r *http.Request) {
 		switch t.TransactionStatus {
 		case "success":
 			totalIncome += t.Amount
-		case "failed", "refunded":
+		case "refunded":
 			totalLoss += t.Amount
 		}
 
 		transactions = append(transactions, t)
+	}
+	var grandAdminTotal float64
+
+	err = db.DB.QueryRow(`
+	SELECT 
+		IFNULL(
+			SUM((oi.price * oi.qty * 0.20)) 
+			+ (COUNT(DISTINCT oi.order_id) * 5),
+		0)
+	FROM tbl_order_items oi
+	JOIN tbl_orders o ON o.id = oi.order_id
+`).Scan(&grandAdminTotal)
+
+	if err != nil {
+		utils.JSON(w, 500, false, "Failed to calculate admin total", nil)
+		return
 	}
 
 	response := map[string]interface{}{
 		"summary": map[string]float64{
 			"total_income": totalIncome,
 			"total_loss":   totalLoss,
+			"admin_total":  grandAdminTotal,
 		},
 		"transactions": transactions,
 	}
 
 	utils.JSON(w, 200, true, "Transactions fetched successfully", response)
+}
+
+func GetAllContactRequests(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != http.MethodGet {
+		utils.JSON(w, 405, false, "Invalid request method", nil)
+		return
+	}
+
+	// 🔐 Authorization check
+	authHeader := r.Header.Get("Authorization")
+	if authHeader == "" {
+		utils.JSON(w, 401, false, "Authorization header missing", nil)
+		return
+	}
+
+	parts := strings.Split(authHeader, " ")
+	if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
+		utils.JSON(w, 401, false, "Invalid token format", nil)
+		return
+	}
+
+	tokenString := parts[1]
+
+	// 🔑 Parse JWT
+	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, jwt.NewValidationError(
+				"unexpected signing method",
+				jwt.ValidationErrorSignatureInvalid,
+			)
+		}
+		return []byte("goeats-v01"), nil
+	})
+
+	if err != nil || !token.Valid {
+		utils.JSON(w, 401, false, "Invalid token", nil)
+		return
+	}
+
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok || claims["login_id"] == nil {
+		utils.JSON(w, 401, false, "Invalid token claims", nil)
+		return
+	}
+
+	// ✅ Admin authenticated
+	_ = int(claims["login_id"].(float64))
+
+	// 📩 Fetch contact requests
+	rows, err := db.DB.Query(`
+		SELECT
+			id,
+			user_type,
+			user_id,
+			name,
+			email,
+			phone,
+			message,
+			status,
+			DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at
+		FROM tbl_contact_us
+		ORDER BY created_at DESC
+	`)
+	if err != nil {
+		utils.JSON(w, 500, false, "Failed to fetch contact requests", nil)
+		return
+	}
+	defer rows.Close()
+
+	type ContactRequest struct {
+		ID        uint64  `json:"id"`
+		UserType  string  `json:"user_type"`
+		UserID    *uint64 `json:"user_id"`
+		Name      string  `json:"name"`
+		Email     string  `json:"email"`
+		Phone     *string `json:"phone"`
+		Message   string  `json:"message"`
+		Status    string  `json:"status"`
+		CreatedAt string  `json:"created_at"`
+	}
+
+	var requests []ContactRequest
+
+	for rows.Next() {
+		var c ContactRequest
+
+		err := rows.Scan(
+			&c.ID,
+			&c.UserType,
+			&c.UserID,
+			&c.Name,
+			&c.Email,
+			&c.Phone,
+			&c.Message,
+			&c.Status,
+			&c.CreatedAt,
+		)
+		if err != nil {
+			continue
+		}
+
+		requests = append(requests, c)
+	}
+
+	response := map[string]interface{}{
+		"total_count": len(requests),
+		"requests":    requests,
+	}
+
+	utils.JSON(w, 200, true, "Contact requests fetched successfully", response)
 }

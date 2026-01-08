@@ -3,6 +3,7 @@ package routes
 import (
 	"GoEatsapi/db"
 	"GoEatsapi/mailer"
+	"GoEatsapi/utils"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -11,7 +12,6 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/stripe/stripe-go/v76"
 	"github.com/stripe/stripe-go/v76/paymentintent"
@@ -31,8 +31,8 @@ func GenerateOrderNumber(db *sql.DB) (string, error) {
 	}
 
 	nextID := lastOrderID + 1
-	today := time.Now().Format("20060102")
-	return fmt.Sprintf("#GOEATS-%s-%05d", today, nextID), nil
+	today := utils.GetISTDateString()
+	return fmt.Sprintf("#GOEATS-%s-%05d", strings.ReplaceAll(today, "-", ""), nextID), nil
 }
 
 func sendSuccessResponse(w http.ResponseWriter, data interface{}) {
@@ -58,6 +58,7 @@ func PlaceOrder(w http.ResponseWriter, r *http.Request) {
 		MenuName   string  `json:"title"`
 		Qty        int     `json:"qty"`
 		Price      float64 `json:"price"`
+		Image      string  `json:"image"`
 	}
 
 	type RequestBody struct {
@@ -97,11 +98,13 @@ func PlaceOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	istTime := utils.GetISTTimeString()
+
 	result, err := tx.Exec(`
 INSERT INTO tbl_orders 
 (order_number, customer_id, restaurant_id, address_id, subtotal, tax_amount, delivery_fee, total_amount, payment_method, status, order_placed_at) 
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Online','pending', NOW())
-`, orderNumber, req.CustomerID, req.RestaurantID, req.AddressID, req.Subtotal, req.TaxAmount, req.DeliveryFee, req.TotalAmount)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Online','pending', ?)
+`, orderNumber, req.CustomerID, req.RestaurantID, req.AddressID, req.Subtotal, req.TaxAmount, req.DeliveryFee, req.TotalAmount, istTime)
 
 	if err != nil {
 		tx.Rollback()
@@ -115,9 +118,9 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Online','pending', NOW())
 	for _, item := range req.Items {
 		_, err := tx.Exec(`
         INSERT INTO tbl_order_items 
-        (order_id, menu_item_id, title,qty, base_price, price, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, NOW())
-    `, orderID, item.MenuItemID, item.MenuName, item.Qty, item.Price, item.Price)
+        (order_id, menu_item_id, title,qty, base_price, price,image_url, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `, orderID, item.MenuItemID, item.MenuName, item.Qty, item.Price, item.Price, item.Image, istTime)
 
 		if err != nil {
 			fmt.Println("Order items insert error:", err)
@@ -154,7 +157,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Online','pending', NOW())
 	_, err = tx.Exec(`
 INSERT INTO tbl_payment_transactions 
 (order_id, customer_id, transaction_reference, payment_mode, payment_gateway, amount, status, brand, last4, payment_intent, created_at) 
-VALUES (?, ?, ?, 'Card', 'stripe', ?, ?, ?, ?, ?, NOW())
+VALUES (?, ?, ?, 'Card', 'stripe', ?, ?, ?, ?, ?, ?)
 `,
 		orderID,
 		req.CustomerID,
@@ -164,6 +167,7 @@ VALUES (?, ?, ?, 'Card', 'stripe', ?, ?, ?, ?, ?, NOW())
 		brand,
 		last4,
 		req.PaymentintentId,
+		istTime,
 	)
 
 	if err != nil {
@@ -320,32 +324,114 @@ VALUES (?, ?, ?, 'Card', 'stripe', ?, ?, ?, ?, ?, NOW())
 	})
 }
 
+// func Create_payment_intent(w http.ResponseWriter, r *http.Request) {
+// 	r.ParseMultipartForm(10 << 20)
+
+// 	amountStr := r.FormValue("amount")
+
+// 	userAmount, err := strconv.ParseFloat(amountStr, 64)
+// 	if err != nil {
+// 		http.Error(w, "Invalid amount", http.StatusBadRequest)
+// 		return
+// 	}
+
+// 	// Stripe needs smallest currency unit (paise)
+// 	// Example: 158 → 15800
+// 	stripeAmount := int64(userAmount * 100)
+
+// 	// Validate
+// 	if stripeAmount <= 0 {
+// 		http.Error(w, "Amount must be greater than 0", http.StatusBadRequest)
+// 		return
+// 	}
+
+// 	stripe.Key = os.Getenv("STRIPE_SK")
+// 	params := &stripe.PaymentIntentParams{
+// 		Amount:             stripe.Int64(stripeAmount),
+// 		Currency:           stripe.String("usd"),
+// 		PaymentMethodTypes: stripe.StringSlice([]string{"card"}), // Force card only
+// 	}
+
+// 	pi, err := paymentintent.New(params)
+// 	if err != nil {
+// 		http.Error(w, "Stripe error: "+err.Error(), http.StatusInternalServerError)
+// 		return
+// 	}
+
+// 	response := map[string]interface{}{
+// 		"client_secret":  pi.ClientSecret,
+// 		"payment_intent": pi.ID,
+// 	}
+
+// 	w.Header().Set("Content-Type", "application/json")
+// 	json.NewEncoder(w).Encode(response)
+// }
+
 func Create_payment_intent(w http.ResponseWriter, r *http.Request) {
-	r.ParseMultipartForm(10 << 20)
+	w.Header().Set("Content-Type", "application/json")
 
+	err := r.ParseMultipartForm(10 << 20)
+	if err != nil {
+		http.Error(w, "Invalid form data", http.StatusBadRequest)
+		return
+	}
+
+	// -------- Amount --------
 	amountStr := r.FormValue("amount")
-
 	userAmount, err := strconv.ParseFloat(amountStr, 64)
 	if err != nil {
 		http.Error(w, "Invalid amount", http.StatusBadRequest)
 		return
 	}
 
-	// Stripe needs smallest currency unit (paise)
-	// Example: 158 → 15800
 	stripeAmount := int64(userAmount * 100)
-
-	// Validate
 	if stripeAmount <= 0 {
 		http.Error(w, "Amount must be greater than 0", http.StatusBadRequest)
 		return
 	}
 
+	// -------- Restaurant ID --------
+	restaurantID := r.FormValue("restaurant_id")
+	if restaurantID == "" {
+		http.Error(w, "restaurant_id is required", http.StatusBadRequest)
+		return
+	}
+
+	// -------- Fetch Restaurant Timing --------
+	var openTimeStr, closeTimeStr string
+
+	query := `
+		SELECT open_time, close_time
+		FROM restaurants
+		WHERE id = ?
+	`
+	err = db.DB.QueryRow(query, restaurantID).Scan(&openTimeStr, &closeTimeStr)
+	if err != nil {
+		http.Error(w, "Restaurant not found", http.StatusNotFound)
+		return
+	}
+
+	// -------- Time Validation --------
+	//now := utils.GetISTTime()
+
+	isOpen := utils.IsWithinBusinessHours(openTimeStr, closeTimeStr)
+	if !isOpen {
+		w.WriteHeader(http.StatusForbidden)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "Restaurant is currently closed. Order cannot be placed.",
+		})
+		return
+	}
+
+	// -------- Stripe Payment Intent --------
 	stripe.Key = os.Getenv("STRIPE_SK")
 	params := &stripe.PaymentIntentParams{
-		Amount:             stripe.Int64(stripeAmount),
-		Currency:           stripe.String("usd"),
-		PaymentMethodTypes: stripe.StringSlice([]string{"card"}), // Force card only
+		Amount:   stripe.Int64(stripeAmount),
+		Currency: stripe.String("usd"),
+		PaymentMethodTypes: stripe.StringSlice([]string{
+			"card",
+		}),
 	}
 
 	pi, err := paymentintent.New(params)
@@ -354,13 +440,12 @@ func Create_payment_intent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	response := map[string]interface{}{
+	// -------- Response --------
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":        true,
 		"client_secret":  pi.ClientSecret,
 		"payment_intent": pi.ID,
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	})
 }
 
 func GetDefaultAddress(w http.ResponseWriter, r *http.Request) {
@@ -845,9 +930,9 @@ func CancelCustomerOrder(w http.ResponseWriter, r *http.Request) {
 	UPDATE tbl_orders
 	SET status = 'cancelled',
 	    cancel_reason = ?,
-	    updated_at = NOW()
+	    updated_at = ?
 	WHERE id = ?`,
-		req.CancelReason, req.OrderID,
+		req.CancelReason, utils.GetISTTimeString(), req.OrderID,
 	)
 
 	if err := tx.Commit(); err != nil {
@@ -1054,8 +1139,8 @@ func UpdatePaymentRefund(tx *sql.Tx, orderID uint64, refundID string) error {
 	_, err := tx.Exec(`
 		UPDATE tbl_payment_transactions
 		SET status = 'refunded',
-		    updated_at = NOW()
-		WHERE order_id = ?`, orderID,
+		    updated_at = ?
+		WHERE order_id = ?`, utils.GetISTTimeString(), orderID,
 	)
 	return err
 }
@@ -1292,9 +1377,9 @@ func CreateRatingReview(w http.ResponseWriter, r *http.Request) {
 	_, err = db.DB.Exec(`
 		INSERT INTO tbl_ratings_reviews 
 		(user_id, restaurant_id, order_id, item_id, rating, review, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, NOW(), NOW())
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 	`,
-		req.UserID, req.RestaurantID, req.OrderID, req.ItemID, req.Rating, req.Review,
+		req.UserID, req.RestaurantID, req.OrderID, req.ItemID, req.Rating, req.Review, utils.GetISTTimeString(), utils.GetISTTimeString(),
 	)
 
 	if err != nil {

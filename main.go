@@ -35,6 +35,7 @@ func main() {
 	config.InitStripe()
 
 	utils.InitLogger()
+	utils.InitTimezone()    // Initialize IST timezone
 	firebase.InitFirebase() // IMPORTANT
 	mux := http.NewServeMux()
 
@@ -57,6 +58,7 @@ func main() {
 	mux.HandleFunc("/admin_update_customer_status", Admin.UpdateCustomerStatus)
 	mux.HandleFunc("/admin_update_password", Admin.UpdateAdminPassword)
 	mux.HandleFunc("/admin_transactions", Admin.GetTransactions)
+	mux.HandleFunc("/admin_get_all_contact_requests", Admin.GetAllContactRequests)
 	//resto
 	mux.HandleFunc("/api/resto-signin", resto.RestoLogin)
 	mux.HandleFunc("/api/resto-signup", resto.RestoRegister)
@@ -134,8 +136,8 @@ func main() {
 
 	// Start server
 	fmt.Println("🚀 Server running on http://localhost:8080")
-	//if err := http.ListenAndServe(":8080", handler); err != nil {
-	if err := http.ListenAndServe(":8013", handler); err != nil {
+	if err := http.ListenAndServe(":8080", handler); err != nil {
+		//if err := http.ListenAndServe(":8013", handler); err != nil {
 		fmt.Println("❌ Server error:", err)
 	}
 }

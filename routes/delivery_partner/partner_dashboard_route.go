@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"time"
 )
 
 func GetOrderGraph(w http.ResponseWriter, r *http.Request) {
@@ -59,10 +58,10 @@ func GetOrderGraph(w http.ResponseWriter, r *http.Request) {
 		TotalAmount float64 `json:"total_amount"`
 	}
 
-	// Generate last 3 months (ensures always 3 rows)
+	// Generate last 3 months in IST (ensures always 3 rows)
 	months := []string{}
 	for i := 2; i >= 0; i-- {
-		m := time.Now().AddDate(0, -i, 0).Format("2006-01")
+		m := utils.GetISTTime().AddDate(0, -i, 0).Format("2006-01")
 		months = append(months, m)
 	}
 
