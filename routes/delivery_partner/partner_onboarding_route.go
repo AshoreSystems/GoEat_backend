@@ -256,7 +256,6 @@ func saveFile(r *http.Request, fieldName string) (string, error) {
 // }
 
 func UpdateDeliveryPartnerHandler(w http.ResponseWriter, r *http.Request) {
-
 	// -------------------------------
 	// 1. Read Bearer Token
 	// -------------------------------
@@ -265,22 +264,18 @@ func UpdateDeliveryPartnerHandler(w http.ResponseWriter, r *http.Request) {
 		JSON(w, 401, false, "Authorization header missing", nil)
 		return
 	}
-
 	parts := strings.Split(authHeader, " ")
 	if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
 		JSON(w, 401, false, "Invalid token format", nil)
 		return
 	}
-
 	tokenString := parts[1]
-
 	// Parse token → loginID
 	loginID, _, err := utils.ParseToken(tokenString)
 	if err != nil {
 		JSON(w, 401, false, "Invalid or expired token", nil)
 		return
 	}
-
 	// -------------------------------
 	// 2. Parse FormData
 	// -------------------------------
@@ -289,18 +284,16 @@ func UpdateDeliveryPartnerHandler(w http.ResponseWriter, r *http.Request) {
 		JSON(w, 400, false, "Invalid form data", nil)
 		return
 	}
-
 	firstName := r.FormValue("first_name")
 	lastName := r.FormValue("last_name")
 	dob := r.FormValue("date_of_birth")
 	primaryMobile := r.FormValue("primary_mobile")
 	gender := r.FormValue("gender")
-
 	password := r.FormValue("password")
 	drivingLicense := r.FormValue("driving_license_number")
 	drivingLicenseexpiry := r.FormValue("driving_license_expire")
 	// ---------------------------------------
-	// 🔥 Upload Profile Photo (OPTIONAL)
+	// :fire: Upload Profile Photo (OPTIONAL)
 	// ---------------------------------------
 	profilePhotoURL := ""
 	drivingLicenseURL := ""
@@ -309,17 +302,14 @@ func UpdateDeliveryPartnerHandler(w http.ResponseWriter, r *http.Request) {
 		// User uploaded a file → upload to B2
 		profilePhotoURL, _ = saveFile(r, "profile_photo")
 	}
-
 	if _, _, err := r.FormFile("driving_license"); err == nil {
 		drivingLicenseURL, _ = saveFile(r, "driving_license")
 	}
-
 	// -------------------------------
 	// 3. Build dynamic SQL for delivery_partners
 	// -------------------------------
 	dpFields := []string{}
 	dpValues := []interface{}{}
-
 	if firstName != "" {
 		dpFields = append(dpFields, "first_name = ?")
 		dpValues = append(dpValues, firstName)
@@ -340,12 +330,11 @@ func UpdateDeliveryPartnerHandler(w http.ResponseWriter, r *http.Request) {
 		dpFields = append(dpFields, "gender = ?")
 		dpValues = append(dpValues, gender)
 	}
-	// 🔥 Add profile image
+	// :fire: Add profile image
 	if profilePhotoURL != "" {
 		dpFields = append(dpFields, "profile_photo_url = ?")
 		dpValues = append(dpValues, profilePhotoURL)
 	}
-
 	if drivingLicenseURL != "" {
 		dpFields = append(dpFields, "driving_license_url = ?")
 		dpValues = append(dpValues, drivingLicenseURL)
@@ -358,16 +347,13 @@ func UpdateDeliveryPartnerHandler(w http.ResponseWriter, r *http.Request) {
 		dpFields = append(dpFields, "driving_license_expire = ?")
 		dpValues = append(dpValues, drivingLicenseexpiry)
 	}
-
 	if len(dpFields) > 0 {
 		dpValues = append(dpValues, loginID)
-
 		updateDPQuery := `
-			UPDATE delivery_partners 
-			SET ` + strings.Join(dpFields, ", ") + `, updated_at = NOW()
-			WHERE login_id = ?
-		`
-
+            UPDATE delivery_partners
+            SET ` + strings.Join(dpFields, ", ") + `,  updated_at = CONVERT_TZ(NOW(), '+00:00', '+05:30')
+            WHERE login_id = ?
+        `
 		_, err = db.DB.Exec(updateDPQuery, dpValues...)
 		if err != nil {
 			fmt.Println("Failed to update delivery partner: ", err)
@@ -375,28 +361,24 @@ func UpdateDeliveryPartnerHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-
 	// -------------------------------
 	// 4. Update LOGIN table (name + phone + password)
 	// -------------------------------
 	loginFields := []string{}
 	loginValues := []interface{}{}
-
 	// Name update
 	if firstName != "" || lastName != "" {
 		fullName := strings.TrimSpace(firstName + " " + lastName)
 		loginFields = append(loginFields, "name = ?")
 		loginValues = append(loginValues, fullName)
 	}
-
 	// Mobile update
 	if primaryMobile != "" {
 		loginFields = append(loginFields, "phone = ?")
 		loginValues = append(loginValues, primaryMobile)
 	}
-
 	// ---------------------------------------
-	// 🔥 Password update
+	// :fire: Password update
 	// ---------------------------------------
 	if password != "" {
 		// Encrypt password
@@ -405,28 +387,23 @@ func UpdateDeliveryPartnerHandler(w http.ResponseWriter, r *http.Request) {
 			JSON(w, 500, false, "Failed to encrypt password", nil)
 			return
 		}
-
 		loginFields = append(loginFields, "password = ?")
 		loginValues = append(loginValues, string(hashed))
 	}
-
 	// Run login table update
 	if len(loginFields) > 0 {
 		loginValues = append(loginValues, loginID)
-
 		updateLoginQuery := `
-			UPDAte login 
-			SET ` + strings.Join(loginFields, ", ") + `, updated_at = NOW()
-			WHERE id = ?
-		`
-
+            UPDAte login
+            SET ` + strings.Join(loginFields, ", ") + `, updated_at = CONVERT_TZ(NOW(), '+00:00', '+05:30')
+            WHERE id = ?
+        `
 		_, err = db.DB.Exec(updateLoginQuery, loginValues...)
 		if err != nil {
 			JSON(w, 500, false, "Failed to update login table", nil)
 			return
 		}
 	}
-
 	// -------------------------------
 	// 5. CHECK STEP 1 COMPLETION
 	// -------------------------------
@@ -436,12 +413,11 @@ func UpdateDeliveryPartnerHandler(w http.ResponseWriter, r *http.Request) {
 		DOB                  string `db:"date_of_birth"`
 		Mobile               string `db:"primary_mobile"`
 		Gender               string `db:"gender"`
-		ProfilePhotoURL      string `db:"profile_photo_url"` // 🔥 NEW
+		ProfilePhotoURL      string `db:"profile_photo_url"` // :fire: NEW
 		DrivingLicenseURL    string `db:"driving_license_url"`
 		DrivingLicense       string `db:"driving_license_number"`
 		DrivingLicenseexpiry string `db:"driving_license_expire"`
 	}
-
 	step1Query := `
         SELECT first_name, last_name, date_of_birth, primary_mobile, gender,COALESCE(profile_photo_url,''),COALESCE(driving_license_url,''),COALESCE(driving_license_number,''),COALESCE(driving_license_expire,'')
         FROM delivery_partners
@@ -453,24 +429,21 @@ func UpdateDeliveryPartnerHandler(w http.ResponseWriter, r *http.Request) {
 		&check.DOB,
 		&check.Mobile,
 		&check.Gender,
-		&check.ProfilePhotoURL, // 🔥 NEW
+		&check.ProfilePhotoURL, // :fire: NEW
 		&check.DrivingLicenseURL,
 		&check.DrivingLicense,
 		&check.DrivingLicenseexpiry,
 	)
-
 	if err != nil {
 		utils.ErrorLog.Println("Order not found", err)
 		JSON(w, 500, false, "Failed to verify step 1", nil)
 		return
 	}
-
 	step1Completed := check.FName != "" &&
 		check.LName != "" &&
 		check.DOB != "" &&
 		check.Mobile != "" &&
 		check.Gender != ""
-
 	// -------------------------------
 	// 6. CHECK STEP 2 (password completed)
 	// -------------------------------
@@ -479,32 +452,28 @@ func UpdateDeliveryPartnerHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		hasPassword = false
 	}
-
 	step2Completed := hasPassword
 	step3Completed := check.ProfilePhotoURL != ""
 	step4Completed := check.DrivingLicenseURL != "" && check.DrivingLicense != "" && check.DrivingLicenseexpiry != ""
-
 	// -------------------------------
 	// Final JSON Response
 	// -------------------------------
-
 	// -------------------------------
 	// 7. CHECK IF ALL STEPS COMPLETED → UPDATE profile_completed
 	// -------------------------------
 	allCompleted := step1Completed && step2Completed && step3Completed && step4Completed
-
 	if allCompleted {
 		_, err = db.DB.Exec(`
-		UPDATE delivery_partners 
-		SET profile_completed = 1, updated_at = NOW()
-		WHERE login_id = ?
-	`, loginID)
-
+      UPDATE delivery_partners
+SET
+    profile_completed = 1,
+    updated_at = CONVERT_TZ(NOW(), '+00:00', '+05:30')
+WHERE login_id = ?;
+    `, loginID)
 		if err != nil {
 			fmt.Println("Failed to update profile_completed:", err)
 		}
 	}
-
 	JSON(w, 200, true, "Profile updated successfully", map[string]interface{}{
 		"step_1_completed":  step1Completed,
 		"step_2_completed":  step2Completed,

@@ -333,6 +333,116 @@ func AdimnLogin(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func Get_Admin_Notifications(w http.ResponseWriter, r *http.Request) {
+	authHeader := r.Header.Get("Authorization")
+	if authHeader == "" {
+		utils.JSON(w, 401, false, "Authorization header missing", nil)
+		return
+	}
+
+	parts := strings.Split(authHeader, " ")
+	if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
+		utils.JSON(w, 401, false, "Invalid token format", nil)
+		return
+	}
+
+	_, _, err := utils.ParseToken(parts[1])
+	if err != nil {
+		utils.JSON(w, 401, false, "Invalid or expired token", nil)
+		return
+	}
+
+	type Notification struct {
+		ID        int    `json:"id"`
+		Type      string `json:"type"`
+		Message   string `json:"message"`
+		Status    string `json:"status,omitempty"`
+		CreatedAt string `json:"created_at"`
+	}
+
+	notifications := []Notification{}
+
+	// Delivery Partners - New onboarding requests
+	partnerRows, err := db.DB.Query(`
+		SELECT id, COALESCE(first_name, ''), COALESCE(last_name, ''), created_at
+		FROM delivery_partners
+		WHERE DATE(created_at) = CURDATE()
+		ORDER BY created_at DESC
+	`)
+	if err == nil {
+		defer partnerRows.Close()
+		for partnerRows.Next() {
+			var id int
+			var firstName, lastName, createdAt string
+			if partnerRows.Scan(&id, &firstName, &lastName, &createdAt) == nil {
+				notifications = append(notifications, Notification{
+					ID:        id,
+					Type:      "delivery_partner",
+					Message:   fmt.Sprintf("New delivery partner onboarding: %s %s", firstName, lastName),
+					CreatedAt: createdAt,
+				})
+			}
+		}
+	}
+
+	// Restaurants - New onboarding requests
+	restaurantRows, err := db.DB.Query(`
+		SELECT id, COALESCE(restaurant_name, ''), created_at
+		FROM restaurants
+		WHERE DATE(created_at) = CURDATE()
+		ORDER BY created_at DESC
+	`)
+	if err == nil {
+		defer restaurantRows.Close()
+		for restaurantRows.Next() {
+			var id int
+			var name, createdAt string
+			if restaurantRows.Scan(&id, &name, &createdAt) == nil {
+				notifications = append(notifications, Notification{
+					ID:        id,
+					Type:      "restaurant",
+					Message:   fmt.Sprintf("New restaurant onboarding: %s", name),
+					CreatedAt: createdAt,
+				})
+			}
+		}
+	}
+
+	// Orders - New orders and status changes
+	orderRows, err := db.DB.Query(`
+		SELECT id, order_number, status, created_at
+		FROM tbl_orders
+		WHERE DATE(created_at) = CURDATE()
+		ORDER BY created_at DESC
+	`)
+	if err == nil {
+		defer orderRows.Close()
+		for orderRows.Next() {
+			var id int
+			var orderNumber, status, createdAt string
+			if orderRows.Scan(&id, &orderNumber, &status, &createdAt) == nil {
+				notifications = append(notifications, Notification{
+					ID:        id,
+					Type:      "order",
+					Message:   fmt.Sprintf("Order %s", orderNumber),
+					Status:    status,
+					CreatedAt: createdAt,
+				})
+			}
+		}
+	}
+
+	message := "Success"
+	if len(notifications) == 0 {
+		message = "No notifications found for today"
+	}
+
+	utils.JSON(w, 200, true, message, map[string]interface{}{
+		"notifications": notifications,
+		"count":         len(notifications),
+	})
+}
+
 func Get_partners_list(w http.ResponseWriter, r *http.Request) {
 	authHeader := r.Header.Get("Authorization")
 	if authHeader == "" {
