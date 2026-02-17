@@ -5,6 +5,7 @@ import (
 	"GoEatsapi/utils"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"strings"
@@ -281,6 +282,7 @@ func GetStripe_Account_details_handler(w http.ResponseWriter, r *http.Request) {
 	// -------------------------------
 	authHeader := r.Header.Get("Authorization")
 	if authHeader == "" {
+		fmt.Println("All Headers:", r.Header)
 		utils.JSON(w, 401, false, "Authorization header missing", nil)
 		return
 	}
