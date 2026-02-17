@@ -194,7 +194,7 @@ func saveFile(r *http.Request, fieldName string) (string, error) {
 	}
 
 	// Generate unique filename
-	filename := fmt.Sprintf("%d_%s", time.Now().UnixNano(), filepath.Base(handler.Filename))
+	filename := fmt.Sprintf("%d_%s", utils.GetISTTime().UnixNano(), filepath.Base(handler.Filename))
 	fullPath := filepath.Join(uploadDir, filename)
 
 	// Save file to disk
@@ -469,6 +469,7 @@ SET
     profile_completed = 1,
     updated_at = CONVERT_TZ(NOW(), '+00:00', '+05:30')
 WHERE login_id = ?;
+
     `, loginID)
 		if err != nil {
 			fmt.Println("Failed to update profile_completed:", err)

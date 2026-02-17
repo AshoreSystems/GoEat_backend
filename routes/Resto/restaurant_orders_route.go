@@ -68,9 +68,8 @@ func GetRestoOrders(w http.ResponseWriter, r *http.Request) {
     WHERE o.status IN (%s)
         AND o.restaurant_id = ?
 
-		AND o.order_placed_at >= CONVERT_TZ(CURDATE(), 'UTC', '+05:30')
-    	AND o.order_placed_at < CONVERT_TZ(CURDATE() + INTERVAL 1 DAY, 'UTC', '+05:30')
-
+	AND CONVERT_TZ(o.order_placed_at, '+00:00', '+05:30') >= CURDATE()
+    AND CONVERT_TZ(o.order_placed_at, '+00:00', '+05:30') < CURDATE() + INTERVAL 1 DAY
     ORDER BY o.id DESC
 `, placeholders)
 	args := make([]interface{}, 0, len(statuses)+1)

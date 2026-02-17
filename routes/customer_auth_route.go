@@ -3,6 +3,7 @@ package routes
 import (
 	"GoEatsapi/db"
 	"GoEatsapi/mailer"
+	"GoEatsapi/utils"
 	crand "crypto/rand"
 	"encoding/json"
 	"fmt"
@@ -12,7 +13,6 @@ import (
 	"os"
 	"regexp"
 	"strings"
-	"time"
 
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/golang-jwt/jwt/v5"
@@ -371,7 +371,7 @@ func LoginCustomer(w http.ResponseWriter, r *http.Request) {
 }
 
 func generateOTP() string {
-	rand.Seed(time.Now().UnixNano())
+	rand.Seed(utils.GetISTTime().UnixNano())
 	return fmt.Sprintf("%06d", rand.Intn(1000000)) // 6 digit OTP
 }
 

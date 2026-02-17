@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"time"
 )
 
 func Get_restaurant_Order_Graph(w http.ResponseWriter, r *http.Request) {
@@ -59,10 +58,10 @@ func Get_restaurant_Order_Graph(w http.ResponseWriter, r *http.Request) {
 		TotalAmount float64 `json:"total_amount"`
 	}
 
-	// Ensure always last 3 months
+	// Ensure always last 3 months in IST
 	months := []string{}
 	for i := 2; i >= 0; i-- {
-		months = append(months, time.Now().AddDate(0, -i, 0).Format("2006-01"))
+		months = append(months, utils.GetISTTime().AddDate(0, -i, 0).Format("2006-01"))
 	}
 
 	dbData := make(map[string]GraphRow)

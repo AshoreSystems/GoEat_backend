@@ -77,6 +77,8 @@ func GetPartnerOrder(w http.ResponseWriter, r *http.Request) {
 		utils.JSON(w, 400, false, "Invalid radius", nil)
 		return
 	}
+	istToday := utils.GetISTDateString()
+	//istTomorrow := utils.GetISTTime().AddDate(0, 0, 1).Format("2006-01-02")
 
 	query := fmt.Sprintf(`
 SELECT 
@@ -115,9 +117,8 @@ LEFT JOIN restaurants r ON r.id = o.restaurant_id
 WHERE o.status IN (%s)
 	AND o.partner_id IS NULL
 
-	-- TODAY'S ORDERS ONLY
-	AND o.order_placed_at >= CONVERT_TZ(CURDATE(), 'UTC', '+05:30')
-    AND o.order_placed_at < CONVERT_TZ(CURDATE() + INTERVAL 1 DAY, 'UTC', '+05:30')
+	-- TODAY'S ORDERS ONLY (IST)
+	AND DATE(o.order_placed_at) = ?
 
 	-- Customer radius
 	AND (
@@ -149,6 +150,9 @@ ORDER BY o.id DESC
 	for _, s := range statuses {
 		args = append(args, s)
 	}
+
+	// TODAY'S ORDERS filter
+	args = append(args, istToday)
 
 	// WHERE customer radius
 	args = append(args,
@@ -320,6 +324,8 @@ func Get_active_Partner_Order(w http.ResponseWriter, r *http.Request) {
 	// -------------------------------
 	// 2. Fetch ALL pending orders
 	// -------------------------------
+	istToday := utils.GetISTDateString()
+
 	query := fmt.Sprintf(`
     SELECT
         o.id,
@@ -345,13 +351,12 @@ func Get_active_Partner_Order(w http.ResponseWriter, r *http.Request) {
     WHERE o.status IN (%s)
         AND o.partner_id = ?
 
-		-- ✅ TODAY'S ORDERS ONLY
-        AND o.order_placed_at >= CONVERT_TZ(CURDATE(), 'UTC', '+05:30')
-    	AND o.order_placed_at < CONVERT_TZ(CURDATE() + INTERVAL 1 DAY, 'UTC', '+05:30')
+		-- TODAY'S ORDERS ONLY (IST)
+        AND DATE(o.order_placed_at) = ?
 
     ORDER BY o.id DESC
 `, placeholders)
-	args := make([]interface{}, 0, len(statuses)+1)
+	args := make([]interface{}, 0, len(statuses)+2)
 
 	// status IN (?, ?, ...)
 	for _, s := range statuses {
@@ -360,6 +365,9 @@ func Get_active_Partner_Order(w http.ResponseWriter, r *http.Request) {
 
 	// partner_id = loginID
 	args = append(args, loginID)
+
+	// TODAY'S ORDERS filter
+	args = append(args, istToday)
 	orderRows, err := db.DB.Query(query, args...)
 	if err != nil {
 		fmt.Println("Order Query Error:", err)

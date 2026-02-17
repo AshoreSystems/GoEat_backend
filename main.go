@@ -35,6 +35,7 @@ func main() {
 	config.InitStripe()
 
 	utils.InitLogger()
+	utils.InitTimezone()    // Initialize IST timezone
 	firebase.InitFirebase() // IMPORTANT
 	mux := http.NewServeMux()
 
@@ -57,6 +58,7 @@ func main() {
 	mux.HandleFunc("/admin_update_customer_status", Admin.UpdateCustomerStatus)
 	mux.HandleFunc("/admin_update_password", Admin.UpdateAdminPassword)
 	mux.HandleFunc("/admin_transactions", Admin.GetTransactions)
+	mux.HandleFunc("/admin_get_all_contact_requests", Admin.GetAllContactRequests)
 	mux.HandleFunc("/admin/notifications", Admin.Get_Admin_Notifications)
 
 	//resto
